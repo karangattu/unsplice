@@ -12,7 +12,7 @@ fun downloadAudio(url: String, file: File) {
     val validator = File(file.path + ".etag")
     val etag = validator.takeIf { it.isFile }?.readText()?.takeIf { it.startsWith('"') && it.endsWith('"') }
     val size = if (etag != null && file.exists()) file.length() else 0L
-    val builder = Request.Builder().url(url)
+    val builder = Request.Builder().url(url).header("User-Agent", "Unsplice/1.0 (Android)")
     if (size > 0) builder.header("Range", "bytes=$size-").header("If-Range", etag!!)
     downloadClient.newCall(builder.build()).execute().use { response ->
         require(response.isSuccessful) { "Download failed: HTTP ${response.code}" }

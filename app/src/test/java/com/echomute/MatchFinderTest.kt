@@ -18,6 +18,12 @@ class MatchFinderTest {
         val b = (0..20).map { Fingerprint(it, 500_000L + it * 3_000) }
         assertTrue(MatchFinder.crossEpisode(a, b).isEmpty())
     }
+    @Test fun findsIntraEpisodeRepetitions() {
+        val first = (0..20).map { Fingerprint(it, 200_000L + it * 1_000) }
+        val second = (0..20).map { Fingerprint(it, 600_000L + it * 1_000) }
+        val segments = MatchFinder.intraEpisode(first + second)
+        assertEquals(listOf(Segment(200_000, 221_000), Segment(600_000, 621_000)), segments)
+    }
     @Test fun skipsOnlyWithinSegmentAndWhenEnabled() {
         val ads = listOf(Segment(1_000, 5_000))
         assertEquals(5_000L, skipTarget(1_000, ads, true))
