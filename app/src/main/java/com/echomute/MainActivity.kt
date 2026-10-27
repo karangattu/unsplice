@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -36,17 +38,45 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.security.MessageDigest
+
+private val PocketCastsRed = Color(0xFFEE3838)
+private val PocketCastsDark = Color(0xFF121316)
+private val PocketCastsSurface = Color(0xFF1E1F24)
+private val PocketCastsSurfaceVariant = Color(0xFF282930)
+private val PocketCastsAdGold = Color(0xFFFFB300)
+
+private val PocketCastsColorScheme = darkColorScheme(
+    primary = PocketCastsRed,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF381212),
+    onPrimaryContainer = Color(0xFFFFDAD6),
+    secondary = Color(0xFFE0E0E6),
+    onSecondary = PocketCastsDark,
+    secondaryContainer = PocketCastsSurfaceVariant,
+    onSecondaryContainer = Color(0xFFE0E0E6),
+    background = PocketCastsDark,
+    onBackground = Color(0xFFF0F0F5),
+    surface = PocketCastsSurface,
+    onSurface = Color(0xFFF0F0F5),
+    surfaceVariant = PocketCastsSurfaceVariant,
+    onSurfaceVariant = Color(0xFF9E9EB0),
+    outline = Color(0xFF3A3B45),
+    error = Color(0xFFFF5449),
+    onError = Color.White
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { LibraryScreen() } }
+        setContent {
+            MaterialTheme(colorScheme = PocketCastsColorScheme) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    LibraryScreen()
+                }
+            }
+        }
     }
 }
-
-private fun stableId(value: String): String =
-    MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 
 private fun formatTime(ms: Long): String {
     val totalSec = (ms / 1000).coerceAtLeast(0)
@@ -80,6 +110,12 @@ private fun LibraryScreen() {
     val prefs = remember { context.getSharedPreferences("playback", android.content.Context.MODE_PRIVATE) }
     var lastSkip by remember { mutableStateOf<String?>(null) }
     var speed by remember { mutableFloatStateOf(1f) }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            DefaultSubscription.ensureDefaultSubscribed(context, dao)
+        }
+    }
 
     DisposableEffect(context) {
         val future = MediaController.Builder(context, SessionToken(context, ComponentName(context, PlaybackService::class.java))).buildAsync()
@@ -122,15 +158,7 @@ private fun LibraryScreen() {
         loading = true
         message = null
         try {
-            val feed = withContext(Dispatchers.IO) { fetchFeed(trimmed) }
-            val podcastId = stableId(trimmed)
-            val old = dao.podcast(podcastId)
-            dao.savePodcast(Podcast(podcastId, feed.title, trimmed, old?.autoSkip ?: true))
-            for (item in feed.episodes) {
-                val id = stableId("$podcastId\u0000${item.id}")
-                val existing = dao.episode(id)
-                dao.saveEpisode(existing?.copy(title = item.title, audioUrl = item.audioUrl) ?: Episode(id, podcastId, item.title, item.audioUrl))
-            }
+            DefaultSubscription.subscribeFeed(trimmed, dao)
             feedUrl = ""
             searchResults = emptyList()
         } catch (e: Exception) {
@@ -145,6 +173,7 @@ private fun LibraryScreen() {
             if (currentId != null && controller != null) {
                 Surface(
                     shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                    color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp,
                     shadowElevation = 8.dp,
                     modifier = Modifier.fillMaxWidth()
@@ -167,11 +196,11 @@ private fun LibraryScreen() {
                         if (duration > 0) {
                             Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                                 Canvas(Modifier.fillMaxWidth().height(6.dp).align(Alignment.Center)) {
-                                    drawLine(Color.LightGray.copy(alpha = 0.5f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2), size.height)
+                                    drawLine(Color(0xFF3A3B45), Offset(0f, size.height / 2), Offset(size.width, size.height / 2), size.height)
                                     segments.forEach { ad ->
                                         val start = (ad.startMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
                                         val end = (ad.endMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
-                                        drawLine(Color(0xffffb300), Offset(start, size.height / 2), Offset(end, size.height / 2), size.height)
+                                        drawLine(PocketCastsAdGold, Offset(start, size.height / 2), Offset(end, size.height / 2), size.height)
                                     }
                                 }
                             }
@@ -179,11 +208,16 @@ private fun LibraryScreen() {
                                 value = position.toFloat().coerceIn(0f, duration.toFloat()),
                                 onValueChange = { controller?.seekTo(it.toLong()); position = it.toLong() },
                                 valueRange = 0f..duration.toFloat(),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = PocketCastsRed,
+                                    activeTrackColor = PocketCastsRed,
+                                    inactiveTrackColor = Color.Transparent
+                                ),
                                 modifier = Modifier.fillMaxWidth().height(32.dp)
                             )
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(formatTime(position), style = MaterialTheme.typography.labelSmall)
-                                Text(formatTime(duration), style = MaterialTheme.typography.labelSmall)
+                                Text(formatTime(position), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(formatTime(duration), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Row(
@@ -199,32 +233,37 @@ private fun LibraryScreen() {
                                     else -> 1f
                                 }
                                 controller?.setPlaybackSpeed(speed)
-                            }) { Text("${speed}x", fontWeight = FontWeight.Bold) }
+                            }) { Text("${speed}x", fontWeight = FontWeight.Bold, color = PocketCastsRed) }
 
                             OutlinedButton(
                                 onClick = { controller?.seekTo((position - 15_000).coerceAtLeast(0)) },
-                                contentPadding = PaddingValues(horizontal = 8.dp)
+                                shape = RoundedCornerShape(20.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp)
                             ) {
                                 Icon(Icons.Filled.Replay10, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(2.dp))
                                 Text("15s")
                             }
 
-                            FilledTonalButton(
+                            Button(
                                 onClick = {
                                     if (playing) controller?.pause() else controller?.play()
                                     playing = !playing
                                 },
-                                modifier = Modifier.height(48.dp)
+                                shape = RoundedCornerShape(24.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                modifier = Modifier.height(44.dp)
                             ) {
                                 Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = null)
                                 Spacer(Modifier.width(4.dp))
-                                Text(if (playing) "Pause" else "Play")
+                                Text(if (playing) "Pause" else "Play", fontWeight = FontWeight.Bold)
                             }
 
                             OutlinedButton(
                                 onClick = { controller?.seekTo((position + 30_000).coerceAtMost(duration)) },
-                                contentPadding = PaddingValues(horizontal = 8.dp)
+                                shape = RoundedCornerShape(20.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp)
                             ) {
                                 Text("30s")
                                 Spacer(Modifier.width(2.dp))
@@ -234,7 +273,7 @@ private fun LibraryScreen() {
                             val nextAd = segments.firstOrNull { it.endMs > position }
                             if (nextAd != null) {
                                 TextButton(onClick = { controller?.seekTo(nextAd.endMs) }) {
-                                    Text("Skip ad", color = Color(0xFFB78103), fontWeight = FontWeight.Bold)
+                                    Text("Skip ad", color = PocketCastsAdGold, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -252,7 +291,7 @@ private fun LibraryScreen() {
                                     }
                                 },
                                 modifier = Modifier.align(Alignment.CenterHorizontally)
-                            ) { Text("Restore last skipped section") }
+                            ) { Text("Restore last skipped section", color = PocketCastsRed) }
                         }
                     }
                 }
@@ -260,13 +299,19 @@ private fun LibraryScreen() {
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            Text("Unsplice", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             if (selected == null) {
+                Text("Podcasts", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     label = { Text("Search podcasts") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PocketCastsRed,
+                        focusedLabelColor = PocketCastsRed
+                    ),
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                 )
                 Button(
@@ -286,6 +331,8 @@ private fun LibraryScreen() {
                             }
                         }
                     },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed),
                     modifier = Modifier.padding(top = 4.dp)
                 ) { Text(if (searching) "Searching..." else "Search") }
 
@@ -293,12 +340,20 @@ private fun LibraryScreen() {
                     Text("Search Results", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
                     LazyColumn(Modifier.heightIn(max = 200.dp)) {
                         items(searchResults, key = { it.feedUrl }) { item ->
-                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Column(Modifier.weight(1f)) {
                                     Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                                    if (item.artist.isNotEmpty()) Text(item.artist, style = MaterialTheme.typography.bodySmall)
+                                    if (item.artist.isNotEmpty()) Text(item.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Button(enabled = !loading, onClick = { scope.launch { subscribeUrl(item.feedUrl) } }) {
+                                Button(
+                                    enabled = !loading,
+                                    onClick = { scope.launch { subscribeUrl(item.feedUrl) } },
+                                    colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed)
+                                ) {
                                     Text("Subscribe")
                                 }
                             }
@@ -311,62 +366,128 @@ private fun LibraryScreen() {
                     onValueChange = { feedUrl = it },
                     label = { Text("Feed URL") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PocketCastsRed,
+                        focusedLabelColor = PocketCastsRed
+                    ),
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                 )
                 Button(
                     enabled = !loading && feedUrl.isNotBlank(),
                     onClick = { scope.launch { subscribeUrl(feedUrl) } },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed),
                     modifier = Modifier.padding(top = 4.dp)
                 ) { Text(if (loading) "Loading..." else "Subscribe") }
 
-                Text("Your podcasts", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 12.dp))
+                Text("Your podcasts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
                 LazyColumn(Modifier.weight(1f)) {
                     items(podcasts, key = { it.id }) { podcast ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { selectedId = podcast.id }, modifier = Modifier.weight(1f)) {
-                                Text(podcast.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                            }
-                            TextButton(onClick = {
-                                scope.launch {
-                                    for (ep in dao.episodesForPodcast(podcast.id)) {
-                                        File(context.filesDir, "episodes/${ep.id}").deleteRecursively()
-                                    }
-                                    dao.deletePodcast(podcast.id)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable { selectedId = podcast.id },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(PocketCastsRed, Color(0xFF8B0000))
+                                            ),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = podcast.title.take(2).uppercase(),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
                                 }
-                            }) { Text("Remove") }
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(podcast.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        if (podcast.autoSkip) "Auto-skip active" else "Auto-skip off",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (podcast.autoSkip) PocketCastsAdGold else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        for (ep in dao.episodesForPodcast(podcast.id)) {
+                                            File(context.filesDir, "episodes/${ep.id}").deleteRecursively()
+                                        }
+                                        dao.deletePodcast(podcast.id)
+                                    }
+                                }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                            }
                         }
                     }
                 }
             } else {
-                TextButton(onClick = { selectedId = null }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("All podcasts")
-                }
-                Text(selected.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Automatically skip detected ads", Modifier.weight(1f))
-                    Switch(checked = selected.autoSkip, onCheckedChange = { enabled -> scope.launch { dao.savePodcast(selected.copy(autoSkip = enabled)) } })
+                    TextButton(onClick = { selectedId = null }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp), tint = PocketCastsRed)
+                        Spacer(Modifier.width(4.dp))
+                        Text("All podcasts", color = PocketCastsRed)
+                    }
                 }
-                Text("Detected repeats across episodes are skipped automatically during playback.", style = MaterialTheme.typography.bodySmall)
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(selected.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Automatically skip detected ads", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                Text("Detected repeats across episodes are skipped automatically during playback.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = selected.autoSkip,
+                                onCheckedChange = { enabled -> scope.launch { dao.savePodcast(selected.copy(autoSkip = enabled)) } },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = PocketCastsRed
+                                )
+                            )
+                        }
+                    }
+                }
+                Text("Episodes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
                 LazyColumn(Modifier.weight(1f)) {
                     items(episodes, key = { it.id }) { episode ->
                         val epSegments by dao.observeSegments(episode.id).collectAsState(initial = emptyList())
                         Card(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                         ) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(episode.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                if (episode.status in listOf("DOWNLOADING", "QUEUED")) {
-                                    Text(episode.status.lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                if (episode.status in listOf("DOWNLOADING", "QUEUED", "PROCESSING")) {
+                                    Text(episode.status.lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = PocketCastsRed)
                                 }
                                 if (episode.status == "READY") {
                                     if (epSegments.isNotEmpty()) {
-                                        Text("${epSegments.size} ad segment(s) removed", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                        Text("${epSegments.size} ad segment(s) removed", color = PocketCastsAdGold, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                                         epSegments.forEach { seg ->
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text("${formatTime(seg.startMs)} - ${formatTime(seg.endMs)}", style = MaterialTheme.typography.bodySmall)
+                                                Text("${formatTime(seg.startMs)} - ${formatTime(seg.endMs)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                 Spacer(Modifier.width(8.dp))
                                                 TextButton(onClick = { scope.launch { dao.deleteSegment(seg.id) } }) {
                                                     Text("Keep audio", style = MaterialTheme.typography.bodySmall)
@@ -374,25 +495,29 @@ private fun LibraryScreen() {
                                             }
                                         }
                                     } else {
-                                        Text("No ads detected (download more episodes to compare)", style = MaterialTheme.typography.bodySmall)
+                                        Text("No ads detected (download more episodes to compare)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                                 episode.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                                Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     if (episode.localPath != null && File(episode.localPath).isFile) {
-                                        Button(onClick = {
-                                            controller?.let { player ->
-                                                player.setMediaItem(
-                                                    MediaItem.Builder()
-                                                        .setMediaId(episode.id)
-                                                        .setUri(File(episode.localPath).toURI().toString())
-                                                        .setMediaMetadata(MediaMetadata.Builder().setTitle(episode.title).setArtist(selected.title).build())
-                                                        .build()
-                                                )
-                                                player.prepare()
-                                                player.play()
-                                            } ?: run { message = "Player is starting. Try again." }
-                                        }) {
+                                        Button(
+                                            onClick = {
+                                                controller?.let { player ->
+                                                    player.setMediaItem(
+                                                        MediaItem.Builder()
+                                                            .setMediaId(episode.id)
+                                                            .setUri(File(episode.localPath).toURI().toString())
+                                                            .setMediaMetadata(MediaMetadata.Builder().setTitle(episode.title).setArtist(selected.title).build())
+                                                            .build()
+                                                    )
+                                                    player.prepare()
+                                                    player.play()
+                                                } ?: run { message = "Player is starting. Try again." }
+                                            },
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed)
+                                        ) {
                                             Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                                             Spacer(Modifier.width(4.dp))
                                             Text("Play")
@@ -404,16 +529,24 @@ private fun LibraryScreen() {
                                                 dao.saveEpisode(episode.copy(status = "NOT_DOWNLOADED", localPath = null, fingerprintPath = null))
                                                 dao.deleteSegments(episode.id)
                                             }
-                                        }) { Text("Delete") }
+                                        }) { Text("Delete", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                     }
                                     if (episode.status !in listOf("DOWNLOADING", "QUEUED", "READY")) {
-                                        TextButton(onClick = {
-                                            scope.launch {
-                                                dao.saveEpisode(episode.copy(status = "QUEUED", error = null))
-                                                val request = OneTimeWorkRequestBuilder<EpisodeWorker>().setInputData(workDataOf("episodeId" to episode.id)).build()
-                                                WorkManager.getInstance(context).enqueueUniqueWork("episode-${episode.id}", ExistingWorkPolicy.KEEP, request)
-                                            }
-                                        }) { Text(if (episode.status == "FAILED") "Retry" else "Download") }
+                                        Button(
+                                            onClick = {
+                                                scope.launch {
+                                                    dao.saveEpisode(episode.copy(status = "QUEUED", error = null))
+                                                    val request = OneTimeWorkRequestBuilder<EpisodeWorker>().setInputData(workDataOf("episodeId" to episode.id)).build()
+                                                    WorkManager.getInstance(context).enqueueUniqueWork("episode-${episode.id}", ExistingWorkPolicy.KEEP, request)
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = PocketCastsSurfaceVariant)
+                                        ) {
+                                            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(if (episode.status == "FAILED") "Retry" else "Download")
+                                        }
                                     }
                                 }
                             }
