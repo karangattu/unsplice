@@ -1,0 +1,81 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6.4.0
+      - name: Test version parsing
+        run: tests/version_test.sh
+      - name: Test and build
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug
+      - name: Test native fingerprinting
+        run: |
+          c++ -O2 -std=c++17 tests/fingerprint_test.cpp app/src/main/cpp/fingerprint.cpp -o /tmp/unsplice-fingerprint-test
+          /tmp/unsplice-fingerprint-test
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6.4.0
+      - name: Read version
+        run: scripts/version.sh "$GITHUB_REF_NAME" >> "$GITHUB_ENV"
+      - name: Install APK verification tools
+        run: sdkmanager "build-tools;35.0.0"
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/unsplice-release.jks"
+      - name: Build signed APK
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/unsplice-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_PASSWORD" && test -n "$ANDROID_KEY_ALIAS" && test -n "$ANDROID_KEY_PASSWORD"
+          ./gradlew :app:assembleRelease -PappVersionName="$versionName" -PappVersionCode="$versionCode"
+          cp app/build/outputs/apk/release/app-release.apk "unsplice-$GITHUB_REF_NAME.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "unsplice-$GITHUB_REF_NAME.apk"
+          sha256sum "unsplice-$GITHUB_REF_NAME.apk" > "unsplice-$GITHUB_REF_NAME.apk.sha256"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: unsplice-${{ github.ref_name }}
+          path: |
+            unsplice-${{ github.ref_name }}.apk
+            unsplice-${{ github.ref_name }}.apk.sha256
+          if-no-files-found: error
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "unsplice-$GITHUB_REF_NAME.apk" "unsplice-$GITHUB_REF_NAME.apk.sha256" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "unsplice-$GITHUB_REF_NAME.apk" "unsplice-$GITHUB_REF_NAME.apk.sha256" --verify-tag --title "$GITHUB_REF_NAME" --notes 'Unsplice prototype. Podcast playback and ad skipping are not available yet.'
+          fi
