@@ -44,7 +44,10 @@ jobs:
       - name: Read version
         run: scripts/version.sh "$GITHUB_REF_NAME" >> "$GITHUB_ENV"
       - name: Install APK verification tools
-        run: sdkmanager "build-tools;35.0.0"
+        run: |
+          if [ ! -x "$ANDROID_HOME/build-tools/35.0.0/apksigner" ]; then
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"
+          fi
       - name: Prepare signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
