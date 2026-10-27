@@ -21,4 +21,14 @@ class FeedClientTest {
             assertThrows(Exception::class.java) { fetchFeed(server.url("/missing").toString()) }
         }
     }
+    @Test fun discoversRssFromHtmlWebpage() {
+        MockWebServer().use { server ->
+            val rssUrl = server.url("/feed.xml").toString()
+            val html = """<!DOCTYPE html><html><head><link rel="alternate" type="application/rss+xml" href="$rssUrl"></head><body>Page</body></html>"""
+            server.enqueue(MockResponse().setBody(html))
+            server.enqueue(MockResponse().setBody("""<rss><channel><title>Discovered</title><item><title>Item</title><enclosure url="https://example.com/audio.mp3" type="audio/mpeg"/></item></channel></rss>"""))
+            val feed = fetchFeed(server.url("/website").toString())
+            assertEquals("Discovered", feed.title)
+        }
+    }
 }

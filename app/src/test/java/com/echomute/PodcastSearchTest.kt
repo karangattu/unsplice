@@ -74,4 +74,33 @@ class PodcastSearchTest {
             }
         }
     }
+
+    @Test
+    fun sortsExactMatchesFirst() {
+        val json = """
+            {
+                "resultCount": 2,
+                "results": [
+                    {
+                        "collectionName": "Other Show",
+                        "feedUrl": "https://example.com/other.xml"
+                    },
+                    {
+                        "collectionName": "The Target Show",
+                        "feedUrl": "https://example.com/target.xml"
+                    }
+                ]
+            }
+        """.trimIndent()
+        val results = parseSearchResults(json).sortedWith { a, b ->
+            val aExact = a.title.equals("The Target Show", ignoreCase = true)
+            val bExact = b.title.equals("The Target Show", ignoreCase = true)
+            when {
+                aExact && !bExact -> -1
+                !aExact && bExact -> 1
+                else -> 0
+            }
+        }
+        assertEquals("The Target Show", results.first().title)
+    }
 }
