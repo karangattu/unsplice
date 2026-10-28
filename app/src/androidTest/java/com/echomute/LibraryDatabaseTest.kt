@@ -4,6 +4,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -29,6 +30,19 @@ class LibraryDatabaseTest {
         } finally { db.close() }
     }
 
+    @Test fun listsEpisodesNewestFirst() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(InstrumentationRegistry.getInstrumentation().targetContext, LibraryDatabase::class.java).build()
+        try {
+            val dao = db.library()
+            dao.savePodcast(Podcast("p", "Show", "https://example.com/feed"))
+            // Saved in feed order (newest first); the two undated ones come from before dates were stored.
+            dao.saveEpisode(Episode("undated-new", "p", "Undated new", "https://example.com/a.mp3"))
+            dao.saveEpisode(Episode("undated-old", "p", "Undated old", "https://example.com/b.mp3"))
+            dao.saveEpisode(Episode("old", "p", "Old", "https://example.com/c.mp3", publishedAt = 1_000))
+            dao.saveEpisode(Episode("new", "p", "New", "https://example.com/d.mp3", publishedAt = 2_000))
+            assertEquals(listOf("new", "old", "undated-new", "undated-old"), dao.observeEpisodes("p").first().map { it.id })
+        } finally { db.close() }
+    }
     @Test fun migratesVersionOneDatabaseKeepingSegments() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val name = "migration-test.db"
@@ -44,12 +58,13 @@ class LibraryDatabaseTest {
             db.execSQL("INSERT INTO ad_segments (episodeId, startMs, endMs) VALUES ('e', 200000, 220000)")
             db.version = 1
         }
-        val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name).addMigrations(LibraryDatabase.MIGRATION_1_2).build()
+        val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name).addMigrations(LibraryDatabase.MIGRATION_1_2, LibraryDatabase.MIGRATION_2_3).build()
         try {
             val segment = db.library().segments("e").single()
             assertEquals("repeat", segment.source)
             assertEquals(0.6f, segment.confidence, 0.0001f)
             assertNull(db.library().episode("e")?.chaptersUrl)
+            assertNull(db.library().episode("e")?.publishedAt)
         } finally { db.close(); context.deleteDatabase(name) }
     }
 }

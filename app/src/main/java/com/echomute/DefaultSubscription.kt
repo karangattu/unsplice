@@ -28,8 +28,8 @@ object DefaultSubscription {
             val id = stableHash("$podcastId\u0000${item.id}")
             val existing = dao.episode(id)
             dao.saveEpisode(
-                existing?.copy(title = item.title, audioUrl = item.audioUrl, chaptersUrl = item.chaptersUrl)
-                    ?: Episode(id, podcastId, item.title, item.audioUrl, chaptersUrl = item.chaptersUrl)
+                existing?.copy(title = item.title, audioUrl = item.audioUrl, chaptersUrl = item.chaptersUrl, publishedAt = item.publishedAt)
+                    ?: Episode(id, podcastId, item.title, item.audioUrl, chaptersUrl = item.chaptersUrl, publishedAt = item.publishedAt)
             )
         }
         podcastId

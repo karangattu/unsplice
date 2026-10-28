@@ -13,7 +13,7 @@ const val AUTO_SKIP_CONFIDENCE = 0.5f
 data class Podcast(@PrimaryKey val id: String, val title: String, val feedUrl: String, val autoSkip: Boolean = true)
 
 @Entity(tableName = "episodes", indices = [Index("podcastId")], foreignKeys = [ForeignKey(entity = Podcast::class, parentColumns = ["id"], childColumns = ["podcastId"], onDelete = ForeignKey.CASCADE)])
-data class Episode(@PrimaryKey val id: String, val podcastId: String, val title: String, val audioUrl: String, val localPath: String? = null, val fingerprintPath: String? = null, val status: String = "NOT_DOWNLOADED", val error: String? = null, val chaptersUrl: String? = null)
+data class Episode(@PrimaryKey val id: String, val podcastId: String, val title: String, val audioUrl: String, val localPath: String? = null, val fingerprintPath: String? = null, val status: String = "NOT_DOWNLOADED", val error: String? = null, val chaptersUrl: String? = null, val publishedAt: Long? = null)
 
 @Entity(tableName = "ad_segments", indices = [Index("episodeId")], foreignKeys = [ForeignKey(entity = Episode::class, parentColumns = ["id"], childColumns = ["episodeId"], onDelete = ForeignKey.CASCADE)])
 data class AdSegment(
@@ -33,7 +33,8 @@ interface LibraryDao {
     @Insert suspend fun saveSegments(segments: List<AdSegment>)
     @Query("SELECT * FROM podcasts ORDER BY title") fun observePodcasts(): Flow<List<Podcast>>
     @Query("SELECT * FROM podcasts WHERE id = :id") suspend fun podcast(id: String): Podcast?
-    @Query("SELECT * FROM episodes WHERE podcastId = :id ORDER BY rowid DESC") fun observeEpisodes(id: String): Flow<List<Episode>>
+    // Newest first. Episodes saved before publish dates were stored fall back to feed order, which is newest first.
+    @Query("SELECT * FROM episodes WHERE podcastId = :id ORDER BY publishedAt IS NULL, publishedAt DESC, rowid ASC") fun observeEpisodes(id: String): Flow<List<Episode>>
     @Query("SELECT * FROM episodes WHERE podcastId = :id") suspend fun episodesForPodcast(id: String): List<Episode>
     @Query("SELECT * FROM episodes WHERE id = :id") suspend fun episode(id: String): Episode?
     @Query("SELECT * FROM ad_segments WHERE episodeId = :id ORDER BY startMs") suspend fun segments(id: String): List<AdSegment>
@@ -45,7 +46,7 @@ interface LibraryDao {
     @Query("DELETE FROM episodes WHERE id = :id") suspend fun deleteEpisode(id: String)
 }
 
-@Database(entities = [Podcast::class, Episode::class, AdSegment::class], version = 2, exportSchema = false)
+@Database(entities = [Podcast::class, Episode::class, AdSegment::class], version = 3, exportSchema = false)
 abstract class LibraryDatabase : RoomDatabase() {
     abstract fun library(): LibraryDao
     companion object {
@@ -56,9 +57,14 @@ abstract class LibraryDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE episodes ADD COLUMN chaptersUrl TEXT")
             }
         }
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE episodes ADD COLUMN publishedAt INTEGER")
+            }
+        }
         @Volatile private var instance: LibraryDatabase? = null
         fun get(context: Context): LibraryDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, "unsplice.db").addMigrations(MIGRATION_1_2).build().also { instance = it }
+            instance ?: Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, "unsplice.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }
