@@ -22,6 +22,7 @@ class DefaultSubscriptionTest {
         override suspend fun episodesForPodcast(id: String): List<Episode> = episodes.values.filter { it.podcastId == id }
         override suspend fun episode(id: String): Episode? = episodes[id]
         override suspend fun segments(id: String): List<AdSegment> = emptyList()
+        override fun observeAutoSkip(episodeId: String): Flow<Boolean?> = flowOf(null)
         override fun observeSegments(id: String): Flow<List<AdSegment>> = flowOf(emptyList())
         override suspend fun deleteSegments(id: String) {}
         override suspend fun deleteSegment(id: Long) {}

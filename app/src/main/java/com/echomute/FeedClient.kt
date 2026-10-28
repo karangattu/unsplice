@@ -57,3 +57,13 @@ fun fetchFeed(url: String): Feed {
         return parseFeed(bytes.inputStream())
     }
 }
+
+fun fetchJsonChapters(url: String): List<Chapter> {
+    require(httpUrl(url)) { "Invalid chapters URL" }
+    feedClient.newCall(Request.Builder().url(url).header("User-Agent", "Unsplice/1.0 (Android)").build()).execute().use { response ->
+        check(response.isSuccessful) { "Chapters request failed: HTTP ${response.code}" }
+        val source = requireNotNull(response.body).source()
+        require(!source.request(1024 * 1024L + 1)) { "Chapters file is too large" }
+        return parseJsonChapters(source.readUtf8())
+    }
+}

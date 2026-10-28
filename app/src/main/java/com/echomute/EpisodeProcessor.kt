@@ -1,6 +1,7 @@
 package com.echomute
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.DataInputStream
@@ -28,6 +29,15 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
         dao.saveEpisode(episode)
 
         try {
+            // Chapters embedded in the file match its timeline. Feed chapters may predate dynamically inserted ads, so trust them less.
+            val embedded = audio.inputStream().buffered().use { readId3Chapters(it) }
+            val (chapters, confidence) = if (embedded.isNotEmpty()) embedded to 0.9f
+                else episode.chaptersUrl?.let { fetchJsonChapters(it) to 0.7f } ?: (emptyList<Chapter>() to 0f)
+            saveNewSegments(dao, episode.id, sponsorSegments(chapters, durationMs(audio)), "chapter", confidence)
+        } catch (_: Exception) {
+        }
+
+        try {
             decodeAudio(audio, pcm)
             DataOutputStream(fingerprints.outputStream().buffered()).use { out ->
                 pcm.inputStream().buffered().use { input ->
@@ -51,24 +61,14 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
             if (fingerprints.isFile && fingerprints.length() > 0) {
                 val current = readFingerprints(fingerprints)
                 val intra = MatchFinder.intraEpisode(current)
-                if (intra.isNotEmpty()) {
-                    dao.saveSegments(intra.map { AdSegment(episodeId = episode.id, startMs = it.startMs, endMs = it.endMs) })
-                }
+                saveNewSegments(dao, episode.id, intra)
                 for (other in dao.episodesForPodcast(episode.podcastId)) {
                     if (other.id == episode.id || other.fingerprintPath == null) continue
                     val otherFile = File(other.fingerprintPath)
                     if (!otherFile.isFile) continue
                     val previous = readFingerprints(otherFile)
-                    val matches = MatchFinder.crossEpisode(current, previous)
-                    if (matches.isNotEmpty()) {
-                        val existing = dao.segments(episode.id)
-                        val newMatches = matches.filter { seg -> existing.none { it.startMs < seg.endMs && seg.startMs < it.endMs } }
-                        if (newMatches.isNotEmpty()) dao.saveSegments(newMatches.map { AdSegment(episodeId = episode.id, startMs = it.startMs, endMs = it.endMs) })
-                    }
-                    val reverse = MatchFinder.crossEpisode(previous, current)
-                    val existing = dao.segments(other.id)
-                    val newSegments = reverse.filter { segment -> existing.none { it.startMs < segment.endMs && segment.startMs < it.endMs } }
-                    if (newSegments.isNotEmpty()) dao.saveSegments(newSegments.map { AdSegment(episodeId = other.id, startMs = it.startMs, endMs = it.endMs) })
+                    saveNewSegments(dao, episode.id, MatchFinder.crossEpisode(current, previous))
+                    saveNewSegments(dao, other.id, MatchFinder.crossEpisode(previous, current))
                 }
                 dao.saveEpisode(episode.copy(status = "READY", fingerprintPath = fingerprints.absolutePath))
             }
@@ -84,6 +84,21 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
         pcm.delete()
         chunk.delete()
     }
+}
+
+/** Saves segments that don't overlap ones already stored, so the first (most trusted) source wins. */
+private suspend fun saveNewSegments(dao: LibraryDao, episodeId: String, segments: List<Segment>, source: String = "repeat", confidence: Float = 0.6f) {
+    val existing = dao.segments(episodeId)
+    val fresh = segments.filter { segment -> existing.none { it.startMs < segment.endMs && segment.startMs < it.endMs } }
+    if (fresh.isNotEmpty()) dao.saveSegments(fresh.map { AdSegment(episodeId = episodeId, startMs = it.startMs, endMs = it.endMs, source = source, confidence = confidence) })
+}
+
+private fun durationMs(audio: File): Long? {
+    val retriever = MediaMetadataRetriever()
+    return try {
+        retriever.setDataSource(audio.absolutePath)
+        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+    } catch (_: Exception) { null } finally { retriever.release() }
 }
 
 private fun readFingerprints(file: File): List<Fingerprint> {

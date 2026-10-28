@@ -270,9 +270,9 @@ private fun LibraryScreen() {
                                 Icon(Icons.Filled.Forward30, contentDescription = null, modifier = Modifier.size(18.dp))
                             }
 
-                            val nextAd = segments.firstOrNull { it.endMs > position }
-                            if (nextAd != null) {
-                                TextButton(onClick = { controller?.seekTo(nextAd.endMs) }) {
+                            val currentAd = segments.firstOrNull { position >= it.startMs && position < it.endMs }
+                            if (currentAd != null) {
+                                TextButton(onClick = { controller?.seekTo(currentAd.endMs) }) {
                                     Text("Skip ad", color = PocketCastsAdGold, fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -285,7 +285,8 @@ private fun LibraryScreen() {
                                         val episode = id?.let { dao.episode(it) }
                                         val podcast = episode?.let { dao.podcast(it.podcastId) }
                                         if (podcast != null) dao.savePodcast(podcast.copy(autoSkip = false))
-                                        controller?.seekTo(prefs.getLong("skipStart", 0))
+                                        // 1 ms past the start, so the skip message placed exactly at the start doesn't fire again.
+                                        controller?.seekTo(prefs.getLong("skipStart", 0) + 1)
                                         prefs.edit().remove("episode").apply()
                                         lastSkip = null
                                     }
@@ -487,7 +488,9 @@ private fun LibraryScreen() {
                                         Text("${epSegments.size} ad segment(s) removed", color = PocketCastsAdGold, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                                         epSegments.forEach { seg ->
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text("${formatTime(seg.startMs)} - ${formatTime(seg.endMs)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                val label = if (seg.source == "chapter") "chapter" else "repeat"
+                                                val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) ", not auto-skipped" else ""
+                                                Text("${formatTime(seg.startMs)} - ${formatTime(seg.endMs)} ($label$manual)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                 Spacer(Modifier.width(8.dp))
                                                 TextButton(onClick = { scope.launch { dao.deleteSegment(seg.id) } }) {
                                                     Text("Keep audio", style = MaterialTheme.typography.bodySmall)

@@ -6,6 +6,20 @@ The project currently contains an Android/NDK build, an experimental native peak
 
 Feed ingestion, downloads, decoding, persistent storage, background work, playback, user controls, intra-episode detection, theme recognition and cleanup remain to be implemented. The fingerprint generator currently reads a whole PCM file into memory and its speed, accuracy, and memory use on real episodes have not been measured. Do not use the detected intervals for automatic skipping yet.
 
+## Ad detection
+
+Each detected segment records its `source` and a `confidence` from 0 to 1. Segments at or above `AUTO_SKIP_CONFIDENCE` (0.5) are skipped automatically when the podcast has auto-skip on. Lower-confidence segments only show a "Skip ad" button while playing.
+
+| Source | How it is found | Confidence |
+| --- | --- | --- |
+| `chapter` | ID3 `CHAP` frames in the audio file whose title names an ad or sponsor | 0.9 |
+| `chapter` | Podcasting 2.0 `<podcast:chapters>` JSON from the feed, used only when the file has no ID3 chapters. These may not account for dynamically inserted ads, so they are trusted less. | 0.7 |
+| `repeat` | Audio fingerprints that repeat within or across episodes of the same podcast | 0.6 |
+
+Sources are checked in that order. A later segment that overlaps an earlier one is not stored.
+
+Playback places an ExoPlayer `PlayerMessage` at the start of each auto-skip segment, so the jump happens at the exact boundary. Seeking by hand into the middle of a segment plays it.
+
 To build, install Android SDK 35, NDK 27.1.12297006, CMake 3.22.1, and a Java 17 or newer JDK. Set `ANDROID_HOME` to the Android SDK directory, then run:
 
 ```sh
