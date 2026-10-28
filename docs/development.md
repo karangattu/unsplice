@@ -12,11 +12,12 @@ Each detected segment records its `source` and a `confidence` from 0 to 1. Segme
 
 | Source | How it is found | Confidence |
 | --- | --- | --- |
+| `marker` | For Omny Studio episodes (including iHeart shows): the clip API lists where ad breaks go in the ad-free episode and publishes a loudness waveform of it. Sliding that waveform along the downloaded audio after each marker gives each break's length. Breaks that line up poorly (correlation below 0.4) are not auto-skipped. | 0.9 |
 | `chapter` | ID3 `CHAP` frames in the audio file whose title names an ad or sponsor | 0.9 |
 | `chapter` | Podcasting 2.0 `<podcast:chapters>` JSON from the feed, used only when the file has no ID3 chapters. These may not account for dynamically inserted ads, so they are trusted less. | 0.7 |
 | `repeat` | Audio fingerprints that repeat within or across episodes of the same podcast | 0.6 |
 
-Sources are checked in that order. A later segment that overlaps an earlier one is not stored.
+Sources are checked in that order. While this runs the episode shows "Finding ads…"; an episode with no ads found offers "Scan again", which clears its segments and reruns detection without downloading again. A later segment that overlaps an earlier one is not stored.
 
 Playback places an ExoPlayer `PlayerMessage` at the start of each auto-skip segment, so the jump happens at the exact boundary. Seeking by hand into the middle of a segment plays it.
 

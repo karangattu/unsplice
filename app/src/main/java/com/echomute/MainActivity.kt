@@ -457,7 +457,7 @@ private fun LibraryScreen() {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Automatically skip detected ads", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                                Text("Detected repeats across episodes are skipped automatically during playback.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Detected ad breaks are skipped automatically during playback.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(
                                 checked = selected.autoSkip,
@@ -482,14 +482,14 @@ private fun LibraryScreen() {
                             Column(Modifier.padding(12.dp)) {
                                 Text(episode.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 if (episode.status in listOf("DOWNLOADING", "QUEUED", "PROCESSING")) {
-                                    Text(episode.status.lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = PocketCastsRed)
+                                    Text(if (episode.status == "PROCESSING") "Finding ads…" else episode.status.lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = PocketCastsRed)
                                 }
                                 if (episode.status == "READY") {
                                     if (epSegments.isNotEmpty()) {
                                         Text("${epSegments.size} ad segment(s) removed", color = PocketCastsAdGold, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                                         epSegments.forEach { seg ->
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                val label = if (seg.source == "chapter") "chapter" else "repeat"
+                                                val label = when (seg.source) { "marker" -> "ad break"; "chapter" -> "chapter"; else -> "repeat" }
                                                 val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) ", not auto-skipped" else ""
                                                 Text("${formatTime(seg.startMs)} - ${formatTime(seg.endMs)} ($label$manual)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                 Spacer(Modifier.width(8.dp))
@@ -499,7 +499,13 @@ private fun LibraryScreen() {
                                             }
                                         }
                                     } else {
-                                        Text("No ads detected (download more episodes to compare)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("No ads found", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Spacer(Modifier.width(8.dp))
+                                            TextButton(onClick = { scope.launch { enqueueEpisode(context, dao, episode) } }) {
+                                                Text("Scan again", style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
                                     }
                                 }
                                 episode.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -535,15 +541,9 @@ private fun LibraryScreen() {
                                             }
                                         }) { Text("Delete", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                     }
-                                    if (episode.status !in listOf("DOWNLOADING", "QUEUED", "READY")) {
+                                    if (episode.status !in listOf("DOWNLOADING", "QUEUED", "PROCESSING", "READY")) {
                                         Button(
-                                            onClick = {
-                                                scope.launch {
-                                                    dao.saveEpisode(episode.copy(status = "QUEUED", error = null))
-                                                    val request = OneTimeWorkRequestBuilder<EpisodeWorker>().setInputData(workDataOf("episodeId" to episode.id)).build()
-                                                    WorkManager.getInstance(context).enqueueUniqueWork("episode-${episode.id}", ExistingWorkPolicy.KEEP, request)
-                                                }
-                                            },
+                                            onClick = { scope.launch { enqueueEpisode(context, dao, episode) } },
                                             shape = RoundedCornerShape(20.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = PocketCastsSurfaceVariant)
                                         ) {
@@ -561,4 +561,12 @@ private fun LibraryScreen() {
             message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
         }
     }
+}
+
+/** Downloads the episode if needed, then finds its ads from scratch. */
+private suspend fun enqueueEpisode(context: android.content.Context, dao: LibraryDao, episode: Episode) {
+    dao.deleteSegments(episode.id)
+    dao.saveEpisode(episode.copy(status = "QUEUED", error = null))
+    val request = OneTimeWorkRequestBuilder<EpisodeWorker>().setInputData(workDataOf("episodeId" to episode.id)).build()
+    WorkManager.getInstance(context).enqueueUniqueWork("episode-${episode.id}", ExistingWorkPolicy.KEEP, request)
 }

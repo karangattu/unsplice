@@ -58,12 +58,18 @@ fun fetchFeed(url: String): Feed {
     }
 }
 
-fun fetchJsonChapters(url: String): List<Chapter> {
-    require(httpUrl(url)) { "Invalid chapters URL" }
+fun fetchJsonChapters(url: String): List<Chapter> = parseJsonChapters(fetchText(url, 1024 * 1024L))
+
+fun fetchOmnyAdInfo(clip: OmnyClip): OmnyAdInfo? = parseOmnyClip(fetchText(clip.apiUrl, 1024 * 1024L))
+
+fun fetchOmnyWaveform(url: String): Pair<Int, IntArray> = parseOmnyWaveform(fetchText(url, 8 * 1024 * 1024L))
+
+private fun fetchText(url: String, maxBytes: Long): String {
+    require(httpUrl(url)) { "Invalid URL" }
     feedClient.newCall(Request.Builder().url(url).header("User-Agent", "Unsplice/1.0 (Android)").build()).execute().use { response ->
-        check(response.isSuccessful) { "Chapters request failed: HTTP ${response.code}" }
+        check(response.isSuccessful) { "Request failed: HTTP ${response.code}" }
         val source = requireNotNull(response.body).source()
-        require(!source.request(1024 * 1024L + 1)) { "Chapters file is too large" }
-        return parseJsonChapters(source.readUtf8())
+        require(!source.request(maxBytes + 1)) { "Response is too large" }
+        return source.readUtf8()
     }
 }
