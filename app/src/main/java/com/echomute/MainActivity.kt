@@ -178,7 +178,8 @@ private fun LibraryScreen() {
                     shadowElevation = 8.dp,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    // Android 15 draws apps edge-to-edge, so keep the controls above the system navigation bar.
+                    Column(Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
                         Text(
                             controller?.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty(),
                             style = MaterialTheme.typography.titleMedium,
