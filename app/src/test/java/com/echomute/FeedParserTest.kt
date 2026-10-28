@@ -4,6 +4,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FeedParserTest {
+    @Test fun readsChannelArtworkAndPrefersItunesOverRss() {
+        val xml = """<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Show</title><image><url>https://example.org/rss.jpg</url></image><itunes:image href="https://example.org/cover.jpg"/><item><itunes:image href="https://example.org/episode.jpg"/><enclosure url="https://example.org/1.mp3"/></item></channel></rss>"""
+        assertEquals("https://example.org/cover.jpg", parseFeed(xml.byteInputStream()).artworkUrl)
+    }
+    @Test fun usesValidRssImageWhenItunesImageIsInvalidAndIgnoresItemImages() {
+        val xml = """<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Show</title><itunes:image href="file:///private"/><image><url>https://example.org/rss.jpg</url></image><item><itunes:image href="https://example.org/episode.jpg"/><image><url>https://example.org/item.jpg</url></image><enclosure url="https://example.org/1.mp3"/></item></channel></rss>"""
+        assertEquals("https://example.org/rss.jpg", parseFeed(xml.byteInputStream()).artworkUrl)
+        val noChannelImage = """<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Show</title><item><itunes:image href="https://example.org/episode.jpg"/></item></channel></rss>"""
+        assertNull(parseFeed(noChannelImage.byteInputStream()).artworkUrl)
+    }
     @Test fun parsesFeedTitleAndAudioEnclosures() {
         val xml = """<rss><channel><title>Example Podcast</title><item><title>First</title><guid>ep-1</guid><enclosure url="https://example.org/one.mp3" type="audio/mpeg"/></item><item><title>Video</title><enclosure url="https://example.org/video" type="video/mp4"/></item></channel></rss>"""
         val feed = parseFeed(xml.byteInputStream())

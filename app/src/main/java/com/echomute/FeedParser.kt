@@ -10,7 +10,7 @@ import org.xml.sax.InputSource
 import org.xml.sax.helpers.DefaultHandler
 
 data class FeedEpisode(val id: String, val title: String, val audioUrl: String, val chaptersUrl: String? = null, val publishedAt: Long? = null)
-data class Feed(val title: String, val episodes: List<FeedEpisode>)
+data class Feed(val title: String, val episodes: List<FeedEpisode>, val artworkUrl: String? = null)
 
 fun httpUrl(value: String): Boolean = try {
     val uri = URI(value)
@@ -27,6 +27,7 @@ fun parseFeed(input: InputStream): Feed {
     parser.setFeature("http://xml.org/sax/features/external-general-entities", false)
     parser.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
     var feedTitle = ""; var item = false; var episodeTitle = ""; var guid = ""; var audio = ""; var chapters: String? = null; var published: Long? = null
+    var channelImage = false; var rssArtwork: String? = null; var itunesArtwork: String? = null
     val episodes = mutableListOf<FeedEpisode>()
     val text = StringBuilder()
     val handler = object : DefaultHandler() {
@@ -34,6 +35,11 @@ fun parseFeed(input: InputStream): Feed {
         override fun startElement(uri: String?, localName: String?, qName: String, attributes: Attributes) {
             text.setLength(0)
             if (qName.equals("item", true)) { item = true; episodeTitle = ""; guid = ""; audio = ""; chapters = null; published = null }
+            if (!item && qName.equals("image", true)) channelImage = true
+            if (!item && qName.equals("itunes:image", true)) {
+                val url = attributes.getValue("href").orEmpty().trim()
+                if (httpUrl(url)) itunesArtwork = url
+            }
             if (item && qName.equals("enclosure", true)) {
                 val url = attributes.getValue("url").orEmpty().trim()
                 val type = attributes.getValue("type").orEmpty()
@@ -51,6 +57,8 @@ fun parseFeed(input: InputStream): Feed {
                 "title" -> if (item) episodeTitle = value else if (feedTitle.isEmpty()) feedTitle = value
                 "guid" -> if (item) guid = value
                 "pubdate" -> if (item) published = parsePubDate(value)
+                "url" -> if (!item && channelImage && httpUrl(value)) rssArtwork = value
+                "image" -> if (!item) channelImage = false
                 "item" -> { if (audio.isNotEmpty()) episodes.add(FeedEpisode(guid.ifEmpty { audio }, episodeTitle.ifEmpty { "Untitled episode" }, audio, chapters, published)); item = false }
             }
             text.setLength(0)
@@ -59,5 +67,5 @@ fun parseFeed(input: InputStream): Feed {
     parser.contentHandler = handler; parser.entityResolver = handler
     parser.parse(InputSource(input))
     require(feedTitle.isNotBlank()) { "Feed has no title" }
-    return Feed(feedTitle, episodes)
+    return Feed(feedTitle, episodes, itunesArtwork ?: rssArtwork)
 }

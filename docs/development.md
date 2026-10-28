@@ -1,10 +1,10 @@
 # Unsplice
 
-Unsplice is an unfinished Android prototype for local podcast repetition analysis. It is not yet a usable podcast player and does not automatically skip ads.
+Unsplice is an Android podcast player with podcast search, RSS subscriptions, downloads, background playback, and automatic skipping of detected ad segments. Detection is experimental: it can miss ads or identify other repeated audio as an ad. You can turn auto-skip off for a podcast or keep an individual detected segment.
 
-The project currently contains an Android/NDK build, an experimental native peak-pair fingerprint generator, and a standalone cross-episode matching prototype. The matcher excludes the first three minutes and matches lasting three minutes or more. These heuristics have only been tested on synthetic inputs; they cannot reliably identify ads without further validation.
+Use Discover to find a podcast or enter a feed URL. In Library, open a podcast to play, download, or add episodes to Up Next. The queue keeps the current episode at the top; use the arrows to reorder upcoming episodes or the remove button to take one out. The queue and playback position are saved between sessions. Episodes stream when no download is available.
 
-Feed ingestion, downloads, decoding, persistent storage, background work, playback, user controls, intra-episode detection, theme recognition and cleanup remain to be implemented. The fingerprint generator currently reads a whole PCM file into memory and its speed, accuracy, and memory use on real episodes have not been measured. Do not use the detected intervals for automatic skipping yet.
+The matcher excludes the first three minutes and matches lasting three minutes or more. The fingerprint generator reads a whole PCM file into memory; its speed, accuracy, and memory use on real episodes have not been measured.
 
 ## Ad detection
 
@@ -36,7 +36,7 @@ clang++ -O2 -std=c++17 tests/fingerprint_test.cpp app/src/main/cpp/fingerprint.c
 
 ## Install on an Android phone or tablet
 
-The debug APK is a signed, universal APK for Android 8.0 (API 26) or newer. It opens the prototype screen; podcast features are not implemented yet.
+The debug APK is a signed, universal APK for Android 8.0 (API 26) or newer.
 
 1. Build it with `./gradlew :app:assembleDebug`.
 2. Copy `app/build/outputs/apk/debug/app-debug.apk` to your device and open it from the device's Files app.

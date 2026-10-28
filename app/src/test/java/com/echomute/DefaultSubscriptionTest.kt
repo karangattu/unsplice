@@ -14,6 +14,9 @@ class DefaultSubscriptionTest {
         val episodes = mutableMapOf<String, Episode>()
 
         override suspend fun savePodcast(podcast: Podcast) { podcasts[podcast.id] = podcast }
+        override suspend fun setArtworkIfMissing(id: String, url: String) {
+            podcasts[id]?.takeIf { it.artworkUrl == null }?.let { podcasts[id] = it.copy(artworkUrl = url) }
+        }
         override suspend fun saveEpisode(episode: Episode) { episodes[episode.id] = episode }
         override suspend fun saveSegments(segments: List<AdSegment>) {}
         override fun observePodcasts(): Flow<List<Podcast>> = flowOf(podcasts.values.toList())
@@ -58,6 +61,45 @@ class DefaultSubscriptionTest {
         override fun edit(): SharedPreferences.Editor = FakeEditor(map)
         override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {}
         override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {}
+    }
+
+    @Test
+    fun savesArtworkOnSubscriptionAndPreservesExistingState() = runBlocking {
+        val dao = FakeDao()
+        val url = "https://example.org/feed"
+        val id = stableHash(url)
+        dao.savePodcast(Podcast(id, "Old title", url, autoSkip = false))
+        val episodeId = stableHash("$id\u0000episode")
+        dao.saveEpisode(Episode(episodeId, id, "Old episode", "https://example.org/old.mp3", localPath = "/download.mp3", status = "READY"))
+        DefaultSubscription.subscribeFeed(url, dao) {
+            Feed("Show", listOf(FeedEpisode("episode", "Episode", "https://example.org/new.mp3")), "https://example.org/cover.jpg")
+        }
+        assertEquals("https://example.org/cover.jpg", dao.podcast(id)?.artworkUrl)
+        assertEquals(false, dao.podcast(id)?.autoSkip)
+        assertEquals("/download.mp3", dao.episode(episodeId)?.localPath)
+    }
+
+    @Test
+    fun backfillsExistingArtworkAndRetriesFailuresWithoutRepeatedEmptyResults() = runBlocking {
+        val dao = FakeDao()
+        val prefs = FakePrefs()
+        dao.savePodcast(Podcast("has", "Has", "https://example.org/has", artworkUrl = "https://example.org/existing.jpg"))
+        dao.savePodcast(Podcast("found", "Found", "https://example.org/found", autoSkip = false))
+        dao.savePodcast(Podcast("empty", "Empty", "https://example.org/empty"))
+        dao.savePodcast(Podcast("failed", "Failed", "https://example.org/failed"))
+        val calls = mutableListOf<String>()
+        suspend fun fetch(url: String): Feed {
+            calls += url
+            if (url.endsWith("failed")) throw java.io.IOException("offline")
+            return Feed("Show", emptyList(), if (url.endsWith("found")) "https://example.org/found.jpg" else null)
+        }
+        DefaultSubscription.refreshMissingArtwork(prefs, dao, now = 1000L, fetcher = ::fetch)
+        assertEquals("https://example.org/found.jpg", dao.podcast("found")?.artworkUrl)
+        assertEquals(false, dao.podcast("found")?.autoSkip)
+        assertEquals("https://example.org/existing.jpg", dao.podcast("has")?.artworkUrl)
+        calls.clear()
+        DefaultSubscription.refreshMissingArtwork(prefs, dao, now = 2000L, fetcher = ::fetch)
+        assertEquals(listOf("https://example.org/failed"), calls)
     }
 
     @Test

@@ -3,6 +3,8 @@ package com.echomute
 import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
 
@@ -23,7 +25,7 @@ object DefaultSubscription {
         val feed = fetcher(trimmed)
         val podcastId = stableHash(trimmed)
         val old = dao.podcast(podcastId)
-        dao.savePodcast(Podcast(podcastId, feed.title.ifEmpty { NEWS_JUNKIE_TITLE }, trimmed, old?.autoSkip ?: true))
+        dao.savePodcast(Podcast(podcastId, feed.title.ifEmpty { NEWS_JUNKIE_TITLE }, trimmed, old?.autoSkip ?: true, feed.artworkUrl ?: old?.artworkUrl))
         for (item in feed.episodes) {
             val id = stableHash("$podcastId\u0000${item.id}")
             val existing = dao.episode(id)
@@ -33,6 +35,31 @@ object DefaultSubscription {
             )
         }
         podcastId
+    }
+
+    suspend fun refreshMissingArtwork(context: Context, dao: LibraryDao) =
+        refreshMissingArtwork(context.getSharedPreferences("artwork_refresh", Context.MODE_PRIVATE), dao)
+
+    suspend fun refreshMissingArtwork(
+        prefs: SharedPreferences,
+        dao: LibraryDao,
+        now: Long = System.currentTimeMillis(),
+        fetcher: suspend (String) -> Feed = { fetchFeed(it) }
+    ) = withContext(Dispatchers.IO) {
+        for (podcast in dao.observePodcasts().first()) {
+            if (podcast.artworkUrl != null) continue
+            val checkedAt = prefs.getLong(podcast.id, 0L)
+            if (checkedAt > 0 && now >= checkedAt && now - checkedAt < 7 * 24 * 60 * 60 * 1000L) continue
+            try {
+                val artwork = fetcher(podcast.feedUrl).artworkUrl
+                if (artwork != null) dao.setArtworkIfMissing(podcast.id, artwork)
+                else prefs.edit().putLong(podcast.id, now).apply()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Retry failed feed requests on the next launch.
+            }
+        }
     }
 
     suspend fun ensureDefaultSubscribed(

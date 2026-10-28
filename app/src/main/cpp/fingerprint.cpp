@@ -7,17 +7,35 @@
 std::vector<FingerprintPoint> fingerprint(const std::vector<int16_t>& samples) {
     constexpr int n = 512, hop = 256;
     constexpr double pi = 3.14159265358979323846;
+    static const auto window = [] {
+        std::array<double, n> values{};
+        for (int i = 0; i < n; ++i) values[i] = 0.5 - 0.5 * cos(2 * pi * i / (n - 1));
+        return values;
+    }();
+    static const auto reversedBins = [] {
+        std::array<unsigned, n> values{};
+        for (int i = 0; i < n; ++i) {
+            unsigned reversed = 0;
+            for (int j = 0; j < 9; ++j) reversed = (reversed << 1) | ((i >> j) & 1);
+            values[i] = reversed;
+        }
+        return values;
+    }();
+    static const auto steps = [] {
+        std::array<std::complex<double>, 9> values{};
+        for (int len = 2, stage = 0; len <= n; len *= 2, ++stage)
+            values[stage] = std::polar(1.0, -2 * pi / len);
+        return values;
+    }();
     struct Peak { int bin; int frame; };
     std::vector<std::vector<Peak>> frames;
     for (size_t base = 0; base + n <= samples.size(); base += hop) {
         std::array<std::complex<double>, n> fft;
         for (int i = 0; i < n; ++i) {
-            unsigned reversed = 0;
-            for (int j = 0; j < 9; ++j) reversed = (reversed << 1) | ((i >> j) & 1);
-            fft[reversed] = samples[base + i] * (0.5 - 0.5 * cos(2 * pi * i / (n - 1)));
+            fft[reversedBins[i]] = samples[base + i] * window[i];
         }
-        for (int len = 2; len <= n; len *= 2) {
-            auto step = std::polar(1.0, -2 * pi / len);
+        for (int len = 2, stage = 0; len <= n; len *= 2, ++stage) {
+            auto step = steps[stage];
             for (int i = 0; i < n; i += len) {
                 std::complex<double> w = 1;
                 for (int j = 0; j < len / 2; ++j) {

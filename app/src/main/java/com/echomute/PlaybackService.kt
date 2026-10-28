@@ -1,8 +1,11 @@
 package com.echomute
 
+import android.app.PendingIntent
+import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
@@ -15,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
@@ -37,6 +41,17 @@ class PlaybackService : MediaSessionService() {
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             .setHandleAudioBecomingNoisy(true)
             .build()
+        val prefs = getSharedPreferences("playback_queue", MODE_PRIVATE)
+        prefs.getString("snapshot", null)?.let(::decodePlaybackQueue)?.let { saved ->
+            val items = saved.items.map { item ->
+                MediaItem.Builder().setMediaId(item.id).setUri(item.uri)
+                    .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).setArtist(item.artist).build()).build()
+            }
+            player.setMediaItems(items, saved.index, saved.position)
+            player.setPlaybackSpeed(saved.speed)
+            player.prepare()
+            currentId.value = player.currentMediaItem?.mediaId
+        }
         // Replacing the media item drops pending messages, so reschedule whenever the item or timeline changes.
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -46,8 +61,23 @@ class PlaybackService : MediaSessionService() {
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                 if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) scheduleSkips()
             }
+            override fun onEvents(player: Player, events: Player.Events) {
+                if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION,
+                        Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_IS_PLAYING_CHANGED,
+                        Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)) saveQueue()
+            }
         })
-        session = MediaSession.Builder(this, player).build()
+        val openApp = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val sessionActivity = PendingIntent.getActivity(this, 0, openApp, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        session = MediaSession.Builder(this, player).setSessionActivity(sessionActivity).build()
+        scope.launch {
+            while (true) {
+                delay(2_000)
+                if (player.isPlaying) saveQueue()
+            }
+        }
         val dao = LibraryDatabase.get(applicationContext).library()
         scope.launch {
             currentId.flatMapLatest { id ->
@@ -60,6 +90,21 @@ class PlaybackService : MediaSessionService() {
                 scheduleSkips()
             }
         }
+    }
+
+    private fun saveQueue() {
+        val prefs = getSharedPreferences("playback_queue", MODE_PRIVATE)
+        if (player.mediaItemCount == 0) {
+            prefs.edit().remove("snapshot").apply()
+            return
+        }
+        val items = (0 until player.mediaItemCount).map { index ->
+            val item = player.getMediaItemAt(index)
+            QueueItem(item.mediaId, item.localConfiguration?.uri?.toString().orEmpty(),
+                item.mediaMetadata.title?.toString().orEmpty(), item.mediaMetadata.artist?.toString().orEmpty())
+        }
+        val snapshot = PlaybackQueueSnapshot(items, player.currentMediaItemIndex, player.currentPosition, player.playbackParameters.speed)
+        prefs.edit().putString("snapshot", encodePlaybackQueue(snapshot)).apply()
     }
 
     /** Places a player message at the start of each ad so playback jumps at the exact boundary instead of on a polling tick. */
@@ -86,6 +131,7 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     override fun onDestroy() {
+        saveQueue()
         scope.cancel()
         session?.release()
         player.release()

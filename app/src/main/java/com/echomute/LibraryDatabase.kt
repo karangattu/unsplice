@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.Flow
 const val AUTO_SKIP_CONFIDENCE = 0.5f
 
 @Entity(tableName = "podcasts")
-data class Podcast(@PrimaryKey val id: String, val title: String, val feedUrl: String, val autoSkip: Boolean = true)
+data class Podcast(@PrimaryKey val id: String, val title: String, val feedUrl: String, val autoSkip: Boolean = true, val artworkUrl: String? = null)
 
 @Entity(tableName = "episodes", indices = [Index("podcastId")], foreignKeys = [ForeignKey(entity = Podcast::class, parentColumns = ["id"], childColumns = ["podcastId"], onDelete = ForeignKey.CASCADE)])
 data class Episode(@PrimaryKey val id: String, val podcastId: String, val title: String, val audioUrl: String, val localPath: String? = null, val fingerprintPath: String? = null, val status: String = "NOT_DOWNLOADED", val error: String? = null, val chaptersUrl: String? = null, val publishedAt: Long? = null)
@@ -29,6 +29,7 @@ data class AdSegment(
 @Dao
 interface LibraryDao {
     @Upsert suspend fun savePodcast(podcast: Podcast)
+    @Query("UPDATE podcasts SET artworkUrl = :url WHERE id = :id AND artworkUrl IS NULL") suspend fun setArtworkIfMissing(id: String, url: String)
     @Upsert suspend fun saveEpisode(episode: Episode)
     @Insert suspend fun saveSegments(segments: List<AdSegment>)
     @Query("SELECT * FROM podcasts ORDER BY title") fun observePodcasts(): Flow<List<Podcast>>
@@ -46,7 +47,7 @@ interface LibraryDao {
     @Query("DELETE FROM episodes WHERE id = :id") suspend fun deleteEpisode(id: String)
 }
 
-@Database(entities = [Podcast::class, Episode::class, AdSegment::class], version = 3, exportSchema = false)
+@Database(entities = [Podcast::class, Episode::class, AdSegment::class], version = 4, exportSchema = false)
 abstract class LibraryDatabase : RoomDatabase() {
     abstract fun library(): LibraryDao
     companion object {
@@ -62,9 +63,14 @@ abstract class LibraryDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE episodes ADD COLUMN publishedAt INTEGER")
             }
         }
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE podcasts ADD COLUMN artworkUrl TEXT")
+            }
+        }
         @Volatile private var instance: LibraryDatabase? = null
         fun get(context: Context): LibraryDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, "unsplice.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+            instance ?: Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, "unsplice.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
         }
     }
 }
