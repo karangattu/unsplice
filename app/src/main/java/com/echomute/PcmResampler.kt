@@ -8,7 +8,8 @@ class PcmResampler(private val sampleRate: Int, private val channels: Int) {
 
     fun convert(input: ShortArray): ShortArray {
         require(input.size % channels == 0)
-        val output = ArrayList<Short>()
+        val output = ShortArray(((input.size / channels).toLong() * 8000 / sampleRate + 1).toInt())
+        var size = 0
         for (i in input.indices step channels) {
             var mono = 0L
             for (c in 0 until channels) mono += input[i + c]
@@ -16,12 +17,12 @@ class PcmResampler(private val sampleRate: Int, private val channels: Int) {
             count++
             phase += 8000
             if (phase >= sampleRate) {
-                output.add((sum / count).toShort())
+                output[size++] = (sum / count).toShort()
                 phase -= sampleRate
                 sum = 0
                 count = 0
             }
         }
-        return output.toShortArray()
+        return output.copyOf(size)
     }
 }
