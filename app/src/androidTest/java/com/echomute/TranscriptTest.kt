@@ -4,6 +4,10 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -13,6 +17,23 @@ import org.junit.runner.RunWith
 /** Runs the speech model over a 50 s synthetic clip whose sponsor read spans roughly 16 s to 35 s. Needs the model, which is downloaded on first use. */
 @RunWith(AndroidJUnit4::class)
 class TranscriptTest {
+    @Test fun cancellationStopsTheModel() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val directory = File(context.cacheDir, "transcript-cancel").apply { deleteRecursively(); mkdirs() }
+        val audio = File(directory, "audio")
+        InstrumentationRegistry.getInstrumentation().context.assets.open("sponsor-read.mp3").use { input -> audio.outputStream().use { input.copyTo(it) } }
+        val model = try { whisperModel(context) } catch (e: Exception) { assumeTrue("Model download failed: ${e.message}", false); return }
+        val pcm = File(directory, "audio16k.pcm")
+        decodeAudio(audio, pcm, WHISPER_SAMPLE_RATE)
+        val started = System.currentTimeMillis()
+        runBlocking {
+            val job = launch { transcribePcm(model, null, pcm, loudnessEnvelope(pcm), context.applicationInfo.nativeLibraryDir) }
+            delay(300)
+            job.cancelAndJoin()
+        }
+        assertTrue("took ${System.currentTimeMillis() - started} ms", System.currentTimeMillis() - started < 2_500)
+    }
+
     @Test fun findsSponsorReadInSynthesisedEpisode() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.cacheDir, "transcript-test").apply { deleteRecursively(); mkdirs() }
@@ -22,9 +43,12 @@ class TranscriptTest {
         assertTrue(model.length() > 30_000_000)
 
         val started = System.currentTimeMillis()
-        val found = transcriptSegments(context, audio, directory) { true }
+        val pcm = File(directory, "audio16k.pcm")
+        assertEquals(WHISPER_SAMPLE_RATE, decodeAudio(audio, pcm, WHISPER_SAMPLE_RATE))
+        val found = runBlocking { transcriptSegments(context, pcm, directory) }
         val words = readTranscript(File(directory, "transcript.tsv"))
-        Log.i("TranscriptTest", "Transcribed ${words.size} words of a 50 s clip in ${System.currentTimeMillis() - started} ms: " + words.joinToString(" ") { it.text })
+        Log.i("TranscriptTest", "Transcribed ${words.size} words of a 50 s clip in ${System.currentTimeMillis() - started} ms on ${NativeWhisper.backendName()}: " + words.joinToString(" ") { it.text })
+        assertTrue(NativeWhisper.backendName(), NativeWhisper.backendName().contains("armv8.2") || NativeWhisper.backendName().contains("armv8.6"))
         val text = words.joinToString(" ") { it.text.lowercase() }
         assertTrue(text, text.contains("brought to you by"))
         assertTrue(text, text.contains("code"))

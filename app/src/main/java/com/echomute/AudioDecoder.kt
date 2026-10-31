@@ -8,8 +8,11 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.nio.ByteOrder
 
-/** Decodes [source] to 16-bit little-endian mono PCM at [targetRate] Hz. */
-fun decodeAudio(source: File, destination: File, targetRate: Int = 8000) {
+/**
+ * Decodes [source] to 16-bit little-endian mono PCM at [targetRate] Hz and returns the rate written: [targetRate],
+ * or 8000 when the source is sampled below [targetRate] and cannot be decimated to it.
+ */
+fun decodeAudio(source: File, destination: File, targetRate: Int = 8000): Int {
     val extractor = MediaExtractor()
     var codec: MediaCodec? = null
     try {
@@ -20,7 +23,8 @@ fun decodeAudio(source: File, destination: File, targetRate: Int = 8000) {
         val format = extractor.getTrackFormat(index)
         val sampleRate = if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) format.getInteger(MediaFormat.KEY_SAMPLE_RATE) else 44100
         val channelCount = if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else 2
-        var resampler = PcmResampler(sampleRate, channelCount, targetRate)
+        val rate = if (sampleRate >= targetRate) targetRate else 8000
+        var resampler = PcmResampler(sampleRate, channelCount, rate)
 
         val decoder = MediaCodec.createDecoderByType(requireNotNull(format.getString(MediaFormat.KEY_MIME)))
         codec = decoder
@@ -50,9 +54,9 @@ fun decodeAudio(source: File, destination: File, targetRate: Int = 8000) {
                 val outIndex = decoder.dequeueOutputBuffer(info, 10_000)
                 if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     val decoded = decoder.outputFormat
-                    val rate = if (decoded.containsKey(MediaFormat.KEY_SAMPLE_RATE)) decoded.getInteger(MediaFormat.KEY_SAMPLE_RATE) else sampleRate
+                    val decodedRate = if (decoded.containsKey(MediaFormat.KEY_SAMPLE_RATE)) decoded.getInteger(MediaFormat.KEY_SAMPLE_RATE) else sampleRate
                     val channels = if (decoded.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) decoded.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else channelCount
-                    resampler = PcmResampler(rate, channels, targetRate)
+                    resampler = PcmResampler(decodedRate, channels, rate)
                     noOutputCount = 0
                 } else if (outIndex >= 0) {
                     noOutputCount = 0
@@ -84,8 +88,32 @@ fun decodeAudio(source: File, destination: File, targetRate: Int = 8000) {
                 }
             }
         }
+        return rate
     } finally {
         codec?.release()
         extractor.release()
+    }
+}
+
+/** Halves the sample rate of 16-bit mono PCM by averaging each pair of samples. */
+fun halveSampleRate(source: File, destination: File) {
+    source.inputStream().buffered(1 shl 16).use { input ->
+        destination.outputStream().buffered(1 shl 16).use { output ->
+            val bytes = ByteArray(4)
+            while (true) {
+                var size = 0
+                while (size < 4) {
+                    val n = input.read(bytes, size, 4 - size)
+                    if (n < 0) break
+                    size += n
+                }
+                if (size < 4) break
+                val a = (bytes[0].toInt() and 255) or (bytes[1].toInt() shl 8)
+                val b = (bytes[2].toInt() and 255) or (bytes[3].toInt() shl 8)
+                val mean = (a + b) / 2
+                output.write(mean and 255)
+                output.write((mean ushr 8) and 255)
+            }
+        }
     }
 }
