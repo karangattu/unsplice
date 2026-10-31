@@ -2,9 +2,11 @@ package com.echomute
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.LruCache
@@ -258,6 +260,7 @@ private fun LibraryScreen() {
     var currentIndex by remember { mutableIntStateOf(0) }
     var oldestFirst by rememberSaveable { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
+    var update by remember { mutableStateOf<AppRelease?>(null) }
 
     fun mediaItem(episode: Episode, podcast: Podcast): MediaItem {
         val local = episode.localPath?.let(::File)?.takeIf { it.isFile }
@@ -289,6 +292,7 @@ private fun LibraryScreen() {
             DefaultSubscription.refreshMissingArtwork(context, dao)
             DefaultSubscription.refreshFeeds(context, dao)
         }
+        update = checkForUpdate(context)
     }
 
     DisposableEffect(context) {
@@ -616,6 +620,21 @@ private fun LibraryScreen() {
                     val version = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
                     if (!version.isNullOrBlank()) {
                         Text("v$version", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                update?.let { release ->
+                    // Releases share one signing key, so opening the APK updates the app in place and keeps its data.
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("update-banner")
+                    ) {
+                        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Unsplice v${release.version} is available", fontWeight = FontWeight.Bold)
+                                Text("Open the download to update. Your podcasts and progress stay.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl))) }) { Text("Download") }
+                        }
                     }
                 }
                 Text("Your podcasts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))

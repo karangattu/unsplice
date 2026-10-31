@@ -71,13 +71,9 @@ clang++ -O2 -std=c++17 tests/fingerprint_test.cpp app/src/main/cpp/fingerprint.c
 
 ## Install on an Android phone or tablet
 
-The debug APK is a signed, universal APK for Android 8.0 (API 26) or newer.
+Install the signed APK from the latest [GitHub release](https://github.com/karangattu/unsplice/releases/latest): open the `.apk` asset on the device and, if Android asks, allow the browser or file manager to install apps from this source. Every release is signed with the same key and carries a higher version code, so opening a newer release's APK updates the app in place and keeps its subscriptions, downloads and listening positions. The app checks the latest release about every six hours and shows a Download banner on the Library screen when a newer one is published; the banner opens the APK, and Android's installer takes it from there.
 
-1. Build it with `./gradlew :app:assembleDebug`.
-2. Copy `app/build/outputs/apk/debug/app-debug.apk` to your device and open it from the device's Files app.
-3. If Android asks, allow your file manager to install apps from this source, then install Unsplice.
-
-Alternatively, connect a device with USB debugging enabled and run `adb install -r app/build/outputs/apk/debug/app-debug.apk`. This build uses the local Android debug signing key. Builds signed with a different key cannot update it without uninstalling it first, which removes its app data.
+For development, build the debug APK with `./gradlew :app:assembleDebug` and install `app/build/outputs/apk/debug/app-debug.apk` from the device's Files app, or connect a device with USB debugging enabled and run `adb install -r app/build/outputs/apk/debug/app-debug.apk`. This build uses the local Android debug signing key, so it cannot update a release build and a release cannot update it; switching between the two means uninstalling first, which removes the app's data. Debug builds never show the update banner for that reason.
 
 The launcher artwork was generated with the built-in image generation tool using this prompt: "A distinctive, simple, modern audio waveform mark suggesting a gap being seamlessly joined or skipped, in bright mint and soft ivory on a deep midnight navy square background; bold, legible at small sizes, with no text." The original is in `artwork/unsplice-icon-source.png`.
 
