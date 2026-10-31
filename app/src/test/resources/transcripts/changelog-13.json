@@ -1,0 +1,22 @@
+{
+ "show": "changelog",
+ "title": "Forking Cal.com to closed source (Interview)",
+ "url": "https://op3.dev/e/https://pscrb.fm/rss/p/https://cdn.changelog.com/uploads/podcast/685/the-changelog-685.mp3",
+ "labels": [
+  {
+   "startMs": 83000,
+   "endMs": 270000,
+   "title": "Sponsor: Coder.com"
+  },
+  {
+   "startMs": 2176000,
+   "endMs": 2343000,
+   "title": "Sponsor: Buildkite"
+  },
+  {
+   "startMs": 3615000,
+   "endMs": 3750000,
+   "title": "Sponsor: WorkOS"
+  }
+ ]
+}

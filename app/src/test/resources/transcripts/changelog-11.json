@@ -1,0 +1,22 @@
+{
+ "show": "changelog",
+ "title": "Building what's next (Interview)",
+ "url": "https://op3.dev/e/https://pscrb.fm/rss/p/https://cdn.changelog.com/uploads/podcast/687/the-changelog-687.mp3",
+ "labels": [
+  {
+   "startMs": 83000,
+   "endMs": 264000,
+   "title": "Sponsor: WorkOS"
+  },
+  {
+   "startMs": 2662000,
+   "endMs": 2830000,
+   "title": "Sponsor: Buildkite"
+  },
+  {
+   "startMs": 5268000,
+   "endMs": 5455000,
+   "title": "Sponsor: Coder.com"
+  }
+ ]
+}

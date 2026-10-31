@@ -1,0 +1,17 @@
+{
+ "show": "changelog",
+ "title": "Canary tokens and digital tripwires (Interview)",
+ "url": "https://op3.dev/e/https://pscrb.fm/rss/p/https://cdn.changelog.com/uploads/podcast/683/the-changelog-683.mp3",
+ "labels": [
+  {
+   "startMs": 2447000,
+   "endMs": 2615000,
+   "title": "Sponsor: Buildkite"
+  },
+  {
+   "startMs": 4942000,
+   "endMs": 5078000,
+   "title": "Sponsor: WorkOS"
+  }
+ ]
+}

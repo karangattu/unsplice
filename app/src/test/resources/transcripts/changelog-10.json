@@ -1,0 +1,27 @@
+{
+ "show": "changelog",
+ "title": "The future is Postgres (Interview)",
+ "url": "https://op3.dev/e/https://pscrb.fm/rss/p/https://cdn.changelog.com/uploads/podcast/688/the-changelog-688.mp3",
+ "labels": [
+  {
+   "startMs": 83000,
+   "endMs": 223000,
+   "title": "Sponsor: Coder.com"
+  },
+  {
+   "startMs": 2711000,
+   "endMs": 2833000,
+   "title": "Sponsor: KubeCon + CloudNativeCon"
+  },
+  {
+   "startMs": 4937000,
+   "endMs": 5049000,
+   "title": "Sponsor: Fingerprint"
+  },
+  {
+   "startMs": 5049000,
+   "endMs": 5141000,
+   "title": "Sponsor: WorkOS"
+  }
+ ]
+}

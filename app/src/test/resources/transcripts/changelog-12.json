@@ -1,0 +1,22 @@
+{
+ "show": "changelog",
+ "title": "From zero to NanoClaw (Interview)",
+ "url": "https://op3.dev/e/https://pscrb.fm/rss/p/https://cdn.changelog.com/uploads/podcast/686/the-changelog-686.mp3",
+ "labels": [
+  {
+   "startMs": 77000,
+   "endMs": 263000,
+   "title": "Sponsor: Coder.com"
+  },
+  {
+   "startMs": 2807000,
+   "endMs": 2942000,
+   "title": "Sponsor: WorkOS"
+  },
+  {
+   "startMs": 6280000,
+   "endMs": 6448000,
+   "title": "Sponsor: Buildkite"
+  }
+ ]
+}

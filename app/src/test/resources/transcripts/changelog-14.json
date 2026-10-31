@@ -1,0 +1,22 @@
+{
+ "show": "changelog",
+ "title": "Postgres at PlanetScale (Interview)",
+ "url": "https://op3.dev/e/https://pscrb.fm/rss/p/https://cdn.changelog.com/uploads/podcast/684/the-changelog-684.mp3",
+ "labels": [
+  {
+   "startMs": 79000,
+   "endMs": 243000,
+   "title": "Sponsor: Buildkite"
+  },
+  {
+   "startMs": 2018000,
+   "endMs": 2204000,
+   "title": "Sponsor: Coder.com"
+  },
+  {
+   "startMs": 3633000,
+   "endMs": 3768000,
+   "title": "Sponsor: WorkOS"
+  }
+ ]
+}

@@ -24,6 +24,11 @@ private const val WEAK = 1
 
 /** Cues at most this far apart belong to the same read: the announcement and the code at the end can be 80 s apart. */
 private const val CLUSTER_GAP_MS = 90_000L
+/**
+ * An interview-style read ("I'm here with the CTO of Acme" ... "learn more at acme.com") has cues only at its ends,
+ * so a cluster that opens a read and a later one that closes it are joined across up to this gap.
+ */
+private const val BRACKET_GAP_MS = 240_000L
 private const val MIN_LENGTH_MS = 10_000L
 private const val MAX_LENGTH_MS = 8 * 60_000L
 /** A silence between words at least this long is treated as a sentence boundary. */
@@ -35,53 +40,61 @@ private const val MERGE_GAP_MS = 5_000L
 private val domain = """[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|co|net|org|io|fm|tv|app|ai|shop|me|us|uk|ca)"""
 private val spokenDomain = """[a-z0-9-]+ dot (?:com|co|net|org|io|fm|tv|app|ai|shop|me)"""
 
-private data class Cue(val pattern: Regex, val weight: Int)
+private enum class Kind { OPEN, CLOSE, ANY }
 
-private fun cue(weight: Int, pattern: String) = Cue(Regex("""\b(?:$pattern)\b"""), weight)
+private data class Cue(val pattern: Regex, val weight: Int, val kind: Kind)
+
+private fun cue(weight: Int, pattern: String, kind: Kind = Kind.ANY) = Cue(Regex("""\b(?:$pattern)\b"""), weight, kind)
 
 private val cues = listOf(
-    // Sponsorship announcements
-    cue(STRONG, "brought to you by"),
-    cue(STRONG, "sponsored by"),
-    cue(STRONG, "(?:this|today's|the) (?:episode|show|podcast) is (?:sponsored|brought|supported|presented)"),
-    cue(STRONG, "support for (?:this|the|today's) (?:show|podcast|episode|program) comes from"),
-    cue(STRONG, "(?:our|today's|this week's|this episode's) (?:sponsors?|partners?)"),
-    cue(STRONG, "thanks? to (?:our|today's) (?:sponsors?|partners?)"),
-    cue(STRONG, "(?:a |another )?(?:word|message) from our (?:sponsors?|partners?)"),
-    cue(STRONG, "paid (?:partnership|promotion|advertisement)"),
-    cue(STRONG, "(?:in partnership|partnered) with"),
-    // Calls to action
-    cue(STRONG, "(?:promo|offer|coupon|discount|referral) code"),
-    cue(STRONG, "use (?:the |my |our )?code"),
-    cue(STRONG, "code \\w+ at checkout"),
-    cue(STRONG, "(?:$domain|$spokenDomain) ?(?:/|slash) ?[a-z0-9-]+"),
-    cue(MEDIUM, "at checkout"),
-    cue(MEDIUM, "(?:go|head|head over|get over) (?:on over )?to (?:$domain|$spokenDomain|[a-z0-9-]+ dot)"),
-    cue(MEDIUM, "visit (?:$domain|$spokenDomain)"),
+    // Sponsorship announcements open a read
+    cue(STRONG, "brought to you by", Kind.OPEN),
+    cue(STRONG, "sponsored (?:today |this week |this episode )?by", Kind.OPEN),
+    cue(STRONG, "(?:this|today's|the) (?:episode|show|podcast) is (?:sponsored|brought|supported|presented)", Kind.OPEN),
+    cue(STRONG, "support for (?:this|the|today's) (?:show|podcast|episode|program) comes from", Kind.OPEN),
+    cue(STRONG, "(?:our|today's|this week's|this episode's) (?:sponsors?|partners?)", Kind.OPEN),
+    cue(STRONG, "thanks? to (?:our|today's) (?:sponsors?|partners?)", Kind.OPEN),
+    cue(STRONG, "(?:a |another )?(?:word|message) from our (?:sponsors?|partners?)", Kind.OPEN),
+    cue(STRONG, "(?:our|the) friends (?:at|over at) (?:$domain|$spokenDomain|[a-z0-9-]+)", Kind.OPEN),
+    cue(STRONG, "(?:the )?sponsors? of (?:this|the|today's) (?:show|episode|podcast)", Kind.OPEN),
+    cue(STRONG, "thank you to (?:our|the|today's) (?:sponsors?|partners?|friends)", Kind.OPEN),
+    cue(STRONG, "i'm (?:here|back) with (?:a good friend|the (?:ceo|cto|founder|co-founder|head|vp))", Kind.OPEN),
+    cue(STRONG, "paid (?:partnership|promotion|advertisement)", Kind.OPEN),
+    cue(STRONG, "(?:in partnership|partnered) with", Kind.OPEN),
+    cue(WEAK, "well friends", Kind.OPEN),
+    // Calls to action close a read
+    cue(STRONG, "(?:promo|offer|coupon|discount|referral) code", Kind.CLOSE),
+    cue(STRONG, "use (?:the |my |our )?code", Kind.CLOSE),
+    cue(STRONG, "code \\w+ at checkout", Kind.CLOSE),
+    cue(STRONG, "(?:$domain|$spokenDomain) ?(?:/|slash) ?[a-z0-9-]+", Kind.CLOSE),
+    cue(MEDIUM, "at checkout", Kind.CLOSE),
+    cue(MEDIUM, "(?:go|head|head over|get over) (?:on over )?to (?:$domain|$spokenDomain|[a-z0-9-]+ dot)", Kind.CLOSE),
+    cue(MEDIUM, "visit (?:$domain|$spokenDomain)", Kind.CLOSE),
+    cue(MEDIUM, "learn more at (?:$domain|$spokenDomain)", Kind.CLOSE),
     cue(MEDIUM, "$domain|$spokenDomain"),
-    cue(MEDIUM, "(?:\\d+ ?%|\\d+ percent|\\w+ percent) off"),
-    cue(MEDIUM, "(?:\\d+|\\w+) (?:dollars|bucks) off"),
-    cue(MEDIUM, "free (?:trial|shipping|month|sample|gift|returns)"),
-    cue(MEDIUM, "(?:\\d+|\\w+) (?:months?|weeks?|days?|years?) free"),
-    cue(MEDIUM, "free for (?:\\d+|\\w+) (?:months?|weeks?|days?)"),
-    cue(MEDIUM, "(?:first|your first) (?:month|order|purchase|box|visit)"),
-    cue(MEDIUM, "terms (?:and conditions )?apply"),
-    cue(MEDIUM, "money[- ]back guarantee"),
-    cue(MEDIUM, "risk[- ]free"),
-    cue(MEDIUM, "limited time"),
-    cue(MEDIUM, "new customers"),
-    cue(MEDIUM, "listeners (?:of this (?:show|podcast) )?(?:get|can get|receive|save)"),
-    cue(MEDIUM, "(?:exclusive|special) (?:offer|deal|discount)"),
-    cue(MEDIUM, "(?:link|links) in the (?:show notes|description|episode notes)"),
-    cue(WEAK, "sign up|signing up"),
+    cue(MEDIUM, "(?:\\d+ ?%|\\d+ percent|\\w+ percent) off", Kind.CLOSE),
+    cue(MEDIUM, "(?:\\d+|\\w+) (?:dollars|bucks) off", Kind.CLOSE),
+    cue(MEDIUM, "free (?:trial|shipping|month|sample|gift|returns)", Kind.CLOSE),
+    cue(MEDIUM, "(?:\\d+|\\w+) (?:months?|weeks?|days?|years?) free", Kind.CLOSE),
+    cue(MEDIUM, "free for (?:\\d+|\\w+) (?:months?|weeks?|days?)", Kind.CLOSE),
+    cue(MEDIUM, "(?:first|your first) (?:month|order|purchase|box|visit)", Kind.CLOSE),
+    cue(MEDIUM, "terms (?:and conditions )?apply", Kind.CLOSE),
+    cue(MEDIUM, "money[- ]back guarantee", Kind.CLOSE),
+    cue(MEDIUM, "risk[- ]free", Kind.CLOSE),
+    cue(MEDIUM, "limited time", Kind.CLOSE),
+    cue(MEDIUM, "new customers", Kind.CLOSE),
+    cue(MEDIUM, "listeners (?:of this (?:show|podcast) )?(?:get|can get|receive|save)", Kind.CLOSE),
+    cue(MEDIUM, "(?:exclusive|special) (?:offer|deal|discount)", Kind.CLOSE),
+    cue(MEDIUM, "(?:link|links) in the (?:show notes|description|episode notes)", Kind.CLOSE),
+    cue(WEAK, "sign up|signing up", Kind.CLOSE),
     cue(WEAK, "discount"),
-    cue(WEAK, "download the app"),
-    cue(WEAK, "cancel (?:any ?time|whenever)"),
-    cue(WEAK, "(?:start|get started) today"),
-    cue(WEAK, "that's [a-z0-9-]+(?:\\.| dot )"),
+    cue(WEAK, "download the app", Kind.CLOSE),
+    cue(WEAK, "cancel (?:any ?time|whenever)", Kind.CLOSE),
+    cue(WEAK, "(?:start|get started) today", Kind.CLOSE),
+    cue(WEAK, "that's [a-z0-9-]+(?:\\.| dot )", Kind.CLOSE),
 )
 
-private data class Hit(val firstWord: Int, val lastWord: Int, val weight: Int)
+private data class Hit(val firstWord: Int, val lastWord: Int, val weight: Int, val kind: Kind, val text: String)
 
 /**
  * Finds sponsor reads from how they are worded: a cluster of cues (sponsor announcements, promo codes, "go to
@@ -99,7 +112,7 @@ fun sponsorReads(words: List<TranscriptWord>): List<ScoredSegment> {
     }
     val joined = text.toString()
     val hits = cues.flatMap { cue ->
-        cue.pattern.findAll(joined).map { match -> Hit(wordAt(offsets, match.range.first), wordAt(offsets, match.range.last), cue.weight) }
+        cue.pattern.findAll(joined).map { match -> Hit(wordAt(offsets, match.range.first), wordAt(offsets, match.range.last), cue.weight, cue.kind, match.value) }
     }.sortedBy { it.firstWord }
 
     val clusters = mutableListOf<MutableList<Hit>>()
@@ -108,8 +121,19 @@ fun sponsorReads(words: List<TranscriptWord>): List<ScoredSegment> {
         if (current != null && words[hit.firstWord].startMs - words[current.last().lastWord].endMs <= CLUSTER_GAP_MS) current.add(hit)
         else clusters.add(mutableListOf(hit))
     }
+    var i = 0
+    while (i < clusters.size - 1) {
+        val a = clusters[i]
+        val b = clusters[i + 1]
+        val gap = words[b.first().firstWord].startMs - words[a.last().lastWord].endMs
+        if (gap <= BRACKET_GAP_MS && a.any { it.kind == Kind.OPEN } && b.any { it.kind == Kind.CLOSE } && b.none { it.kind == Kind.OPEN }) {
+            a.addAll(b)
+            clusters.removeAt(i + 1)
+        } else i++
+    }
 
     val found = clusters.mapNotNull { cluster ->
+        // The same wording repeated ("acme.com ... acme.com") counts once, so a product discussed at length does not pile up points.
         val score = cluster.sumOf { it.weight }
         if (score < MIN_SCORE || cluster.none { it.weight == STRONG }) return@mapNotNull null
         val first = cluster.minOf { it.firstWord }
