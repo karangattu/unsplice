@@ -13,8 +13,10 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import okio.Buffer
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -38,10 +40,14 @@ class QueueScreenTest {
                 val first = "First ${System.nanoTime()}"
                 val second = "Second ${System.nanoTime()}"
                 val third = "Third ${System.nanoTime()}"
-                server.enqueue(MockResponse().setBody("""<rss><channel><title>$show</title><item><title>$first</title><enclosure url="${server.url("/first.mp3")}" type="audio/mpeg"/></item><item><title>$second</title><enclosure url="${server.url("/second.mp3")}" type="audio/mpeg"/></item><item><title>$third</title><enclosure url="${server.url("/third.mp3")}" type="audio/mpeg"/></item></channel></rss>"""))
+                val feed = """<rss><channel><title>$show</title><item><title>$first</title><enclosure url="${server.url("/first.mp3")}" type="audio/mpeg"/></item><item><title>$second</title><enclosure url="${server.url("/second.mp3")}" type="audio/mpeg"/></item><item><title>$third</title><enclosure url="${server.url("/third.mp3")}" type="audio/mpeg"/></item></channel></rss>"""
                 val mp3 = InstrumentationRegistry.getInstrumentation().context.assets.open("tone.mp3").use { it.readBytes() }
-                val audio = Buffer().apply { repeat(100) { write(mp3) } }
-                server.enqueue(MockResponse().setBody(audio))
+                // Queued episodes are downloaded in the background, so the player and the download both fetch audio.
+                server.dispatcher = object : Dispatcher() {
+                    override fun dispatch(request: RecordedRequest): MockResponse =
+                        if (request.path == "/feed") MockResponse().setBody(feed)
+                        else MockResponse().setBody(Buffer().apply { repeat(100) { write(mp3) } })
+                }
                 compose.onNodeWithText("Discover").performClick()
                 compose.onNodeWithText("Feed URL").performTextInput(server.url("/feed").toString())
                 compose.onNodeWithText("Subscribe").performClick()

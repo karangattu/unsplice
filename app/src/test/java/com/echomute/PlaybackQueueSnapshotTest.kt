@@ -17,6 +17,14 @@ class PlaybackQueueSnapshotTest {
         assertEquals(snapshot, decodePlaybackQueue(encodePlaybackQueue(snapshot)))
     }
 
+    @Test fun keepsPublishDatesAndReadsQueuesSavedWithoutThem() {
+        val snapshot = PlaybackQueueSnapshot(listOf(QueueItem("one", "https://example.com/one.mp3", "First", "Show", publishedAt = 1_761_600_000_000L), QueueItem("two", "https://example.com/two.mp3", "Second", "Show")), 0, 0, 1f)
+        val restored = decodePlaybackQueue(encodePlaybackQueue(snapshot))!!
+        assertEquals(1_761_600_000_000L, restored.items[0].publishedAt)
+        assertNull(restored.items[1].publishedAt)
+        assertEquals(snapshot, restored)
+    }
+
     @Test fun ignoresCorruptOrUnusableSavedQueue() {
         assertNull(decodePlaybackQueue("{broken"))
         assertNull(decodePlaybackQueue("""{"items":[{"id":"one","uri":""}],"index":0}"""))

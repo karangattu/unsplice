@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
 
-data class QueueItem(val id: String, val uri: String, val title: String, val artist: String)
+data class QueueItem(val id: String, val uri: String, val title: String, val artist: String, val publishedAt: Long? = null)
 data class PlaybackQueueSnapshot(val items: List<QueueItem>, val index: Int, val position: Long, val speed: Float)
 
 fun decodePlaybackQueue(saved: String): PlaybackQueueSnapshot? = try {
@@ -15,7 +15,8 @@ fun decodePlaybackQueue(saved: String): PlaybackQueueSnapshot? = try {
         val id = item.getString("id")
         val uri = item.getString("uri")
         require(id.isNotBlank() && URI(uri).scheme?.lowercase() in setOf("https", "http", "file", "content"))
-        QueueItem(id, uri, item.optString("title", ""), item.optString("artist", ""))
+        val published = if (item.has("publishedAt")) item.getLong("publishedAt") else null
+        QueueItem(id, uri, item.optString("title", ""), item.optString("artist", ""), published)
     }
     val index = json.getInt("index")
     require(index in items.indices)
@@ -27,7 +28,9 @@ fun decodePlaybackQueue(saved: String): PlaybackQueueSnapshot? = try {
 fun encodePlaybackQueue(snapshot: PlaybackQueueSnapshot): String {
     val items = JSONArray()
     snapshot.items.forEach { item ->
-        items.put(JSONObject().put("id", item.id).put("uri", item.uri).put("title", item.title).put("artist", item.artist))
+        val json = JSONObject().put("id", item.id).put("uri", item.uri).put("title", item.title).put("artist", item.artist)
+        item.publishedAt?.let { json.put("publishedAt", it) }
+        items.put(json)
     }
     return JSONObject().put("items", items).put("index", snapshot.index)
         .put("position", snapshot.position).put("speed", snapshot.speed.toDouble()).toString()

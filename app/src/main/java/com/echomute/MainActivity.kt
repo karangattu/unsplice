@@ -256,14 +256,17 @@ private fun LibraryScreen() {
     var playerExpanded by remember { mutableStateOf(false) }
     var queue by remember { mutableStateOf(emptyList<MediaItem>()) }
     var currentIndex by remember { mutableIntStateOf(0) }
+    var oldestFirst by rememberSaveable { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
 
     fun mediaItem(episode: Episode, podcast: Podcast): MediaItem {
         val local = episode.localPath?.let(::File)?.takeIf { it.isFile }
-        return MediaItem.Builder()
-            .setMediaId(episode.id)
-            .setUri(local?.toURI()?.toString() ?: episode.audioUrl)
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(episode.title).setArtist(podcast.title).build())
-            .build()
+        return QueueItem(episode.id, local?.toURI()?.toString() ?: episode.audioUrl, episode.title, podcast.title, episode.publishedAt).toMediaItem()
+    }
+
+    /** Playing or queueing an episode gets its ads found, so they are skipped by the time the queue reaches it. Runs without asking for the notification permission. */
+    fun prepareForPlayback(episode: Episode) {
+        if (episode.status !in listOf("DOWNLOADING", "QUEUED", "PROCESSING", "READY")) scope.launch { enqueueEpisode(context, dao, episode) }
     }
 
     fun removePastItemsIfSafe(ids: Set<String>): Boolean {
@@ -284,6 +287,7 @@ private fun LibraryScreen() {
         withContext(Dispatchers.IO) {
             DefaultSubscription.ensureDefaultSubscribed(context, dao)
             DefaultSubscription.refreshMissingArtwork(context, dao)
+            DefaultSubscription.refreshFeeds(context, dao)
         }
     }
 
@@ -460,11 +464,11 @@ private fun LibraryScreen() {
                                     onClick = {
                                         val id = currentId
                                         scope.launch {
-                                            val episode = id?.let { dao.episode(it) }
-                                            val podcast = episode?.let { dao.podcast(it.podcastId) }
-                                            if (podcast != null) dao.savePodcast(podcast.copy(autoSkip = false))
+                                            val start = prefs.getLong("skipStart", 0)
+                                            // Keep only this section; other ads in this and later episodes stay skipped.
+                                            if (id != null) dao.segments(id).filter { it.startMs == start }.forEach { dao.deleteSegment(it.id) }
                                             // 1 ms past the start, so the skip message placed exactly at the start doesn't fire again.
-                                            controller?.seekTo(prefs.getLong("skipStart", 0) + 1)
+                                            controller?.seekTo(start + 1)
                                             prefs.edit().remove("episode").apply()
                                             lastSkip = null
                                         }
@@ -511,7 +515,8 @@ private fun LibraryScreen() {
                                     }) {
                                         if (item.mediaId == currentId) Text("CURRENT EPISODE", style = MaterialTheme.typography.labelSmall, color = PocketCastsRed)
                                         Text(title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Text(item.mediaMetadata.artist?.toString().orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                        val published = item.toQueueItem().publishedAt?.let(::formatPublished)
+                                        Text(listOfNotNull(item.mediaMetadata.artist?.toString()?.takeIf { it.isNotBlank() }, published).joinToString(" \u2022 "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                                     }
                                     IconButton(enabled = index > 1, onClick = { controller?.moveMediaItem(currentIndex + index, currentIndex + index - 1) }) { Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move $title up") }
                                     IconButton(enabled = index > 0 && index < upcoming.lastIndex, onClick = { controller?.moveMediaItem(currentIndex + index, currentIndex + index + 1) }) { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move $title down") }
@@ -672,7 +677,13 @@ private fun LibraryScreen() {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             PodcastArtwork(selected.title, selected.artworkUrl)
                             Spacer(Modifier.width(12.dp))
-                            Text(selected.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(selected.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            IconButton(enabled = !refreshing, onClick = {
+                                scope.launch {
+                                    refreshing = true
+                                    try { DefaultSubscription.subscribeFeed(selected.feedUrl, dao) } catch (e: Exception) { message = e.message ?: "Could not refresh the feed" } finally { refreshing = false }
+                                }
+                            }) { Icon(Icons.Filled.Refresh, contentDescription = "Refresh episodes") }
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -691,9 +702,16 @@ private fun LibraryScreen() {
                         }
                     }
                 }
-                Text("Episodes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Episodes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { oldestFirst = !oldestFirst }, modifier = Modifier.testTag("sort-episodes")) {
+                        Icon(Icons.Filled.SwapVert, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (oldestFirst) "Oldest first" else "Newest first", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
                 LazyColumn(Modifier.weight(1f).testTag("episodes")) {
-                    items(episodes, key = { it.id }) { episode ->
+                    items(if (oldestFirst) episodes.asReversed() else episodes, key = { it.id }) { episode ->
                         val epSegments by dao.observeSegments(episode.id).collectAsState(initial = emptyList())
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -702,6 +720,12 @@ private fun LibraryScreen() {
                         ) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(episode.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                val details = listOfNotNull(episode.publishedAt?.let(::formatPublished), progressLabel(episode.positionMs, episode.durationMs, episode.finished))
+                                if (details.isNotEmpty()) {
+                                    Text(details.joinToString(" \u2022 "), style = MaterialTheme.typography.bodySmall,
+                                        color = if (episode.finished) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.testTag("episode-details-${episode.id}"))
+                                }
                                 if (episode.status in listOf("DOWNLOADING", "QUEUED", "PROCESSING")) {
                                     Text(if (episode.status == "PROCESSING") "Finding ads…" else episode.status.lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = PocketCastsRed)
                                 }
@@ -739,6 +763,7 @@ private fun LibraryScreen() {
                                                 if (index != player.currentMediaItemIndex || player.playbackState == Player.STATE_ENDED) player.seekTo(index, 0)
                                                 player.prepare()
                                                 player.play()
+                                                prepareForPlayback(episode)
                                             } ?: run { message = "Player is starting. Try again." }
                                         },
                                         shape = RoundedCornerShape(20.dp),
@@ -754,6 +779,7 @@ private fun LibraryScreen() {
                                             if (existing == null || existing < player.currentMediaItemIndex) {
                                                 if (existing != null) player.removeMediaItem(existing)
                                                 player.addMediaItem(mediaItem(episode, selected))
+                                                prepareForPlayback(episode)
                                             } else message = "Already in Up Next"
                                         } ?: run { message = "Player is starting. Try again." }
                                     }) { Text("Add to Up Next") }
