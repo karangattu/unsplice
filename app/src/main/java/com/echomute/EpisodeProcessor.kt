@@ -75,7 +75,8 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
                 if (fingerprints.isFile && fingerprints.length() > 0) {
                     val current = readFingerprints(fingerprints)
                     saveNewSegments(dao, episode.id, MatchFinder.intraEpisode(current))
-                    for (other in dao.episodesForPodcast(episode.podcastId)) {
+                    // Dynamically inserted ads repeat across every show in a network, so compare with the whole library.
+                    for (other in dao.episodesWithFingerprints()) {
                         if (other.id == episode.id || other.fingerprintPath == null) continue
                         val otherFile = File(other.fingerprintPath)
                         if (!otherFile.isFile) continue

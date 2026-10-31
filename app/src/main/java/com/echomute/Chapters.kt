@@ -7,7 +7,10 @@ import org.json.JSONObject
 
 data class Chapter(val startMs: Long, val endMs: Long?, val title: String)
 
-private val sponsorTitle = Regex("""\b(ads?|ad break|advert\w*|sponsors?\w*|commercials?|paid (content|promotion|partnership)|brought to you by)\b""", RegexOption.IGNORE_CASE)
+private val sponsorTitle = Regex(
+    """\b(ads?|ad break|advert\w*|sponsors?\w*|commercials?|promos?|(pre|mid|post)[- ]?rolls?|paid (content|promotion|partnership)|brought to you by|support(ed)? (for|by) (this|the|today's) (show|podcast|episode)|(word|message) from our (sponsors?|partners?))\b""",
+    RegexOption.IGNORE_CASE
+)
 
 /** Chapters whose titles mark them as ads or sponsor reads. An open-ended chapter runs to the next one or to [durationMs]. */
 fun sponsorSegments(chapters: List<Chapter>, durationMs: Long?): List<Segment> {

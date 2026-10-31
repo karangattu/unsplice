@@ -44,6 +44,14 @@ class ChaptersTest {
         assertEquals(listOf(Chapter(0, null, "Intro"), Chapter(312_500, 372_000, "Ad break")), parseJsonChapters(json))
     }
 
+    @Test fun recognisesCommonAdChapterTitles() {
+        val ads = listOf("Mid-roll", "Midroll ads", "Pre-Roll", "Post roll", "Promo: Our other show", "A word from our sponsors", "Support for this show comes from Acme", "Message from our partners", "Commercial break")
+        val content = listOf("Roads ahead", "Sponsorship scandal in parliament", "The promotion ceremony", "Rolling Stones retrospective", "Opening", "Listener mail")
+        for (title in ads) assertEquals(title, listOf(Segment(0, 1_000)), sponsorSegments(listOf(Chapter(0, 1_000, title)), null))
+        // "Sponsorship" is ambiguous and stays flagged; the others must not be.
+        for (title in content - "Sponsorship scandal in parliament") assertTrue(title, sponsorSegments(listOf(Chapter(0, 1_000, title)), null).isEmpty())
+    }
+
     @Test fun picksSponsorChaptersOnly() {
         val chapters = listOf(
             Chapter(0, null, "Cold open"),
