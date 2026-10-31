@@ -23,6 +23,10 @@ class DefaultSubscriptionTest {
         override suspend fun podcast(id: String): Podcast? = podcasts[id]
         override fun observeEpisodes(id: String): Flow<List<Episode>> = flowOf(episodes.values.filter { it.podcastId == id })
         override suspend fun episodesForPodcast(id: String): List<Episode> = episodes.values.filter { it.podcastId == id }
+        override suspend fun episodesWithFingerprints(): List<Episode> = episodes.values.filter { it.fingerprintPath != null }
+        override fun observeDownloads(): Flow<List<EpisodeFile>> = flowOf(episodes.values.mapNotNull { e -> e.localPath?.let { EpisodeFile(e.id, it) } })
+        override suspend fun savePosition(id: String, positionMs: Long, durationMs: Long?) { episodes[id]?.let { episodes[id] = it.copy(positionMs = positionMs, durationMs = durationMs, finished = false) } }
+        override suspend fun markFinished(id: String) { episodes[id]?.let { episodes[id] = it.copy(positionMs = 0, finished = true) } }
         override suspend fun episode(id: String): Episode? = episodes[id]
         override suspend fun segments(id: String): List<AdSegment> = emptyList()
         override fun observeAutoSkip(episodeId: String): Flow<Boolean?> = flowOf(null)
@@ -100,6 +104,32 @@ class DefaultSubscriptionTest {
         calls.clear()
         DefaultSubscription.refreshMissingArtwork(prefs, dao, now = 2000L, fetcher = ::fetch)
         assertEquals(listOf("https://example.org/failed"), calls)
+    }
+
+    @Test
+    fun refreshesEveryFeedAtMostOncePerInterval() = runBlocking {
+        val dao = FakeDao()
+        val prefs = FakePrefs()
+        val a = "https://example.org/a"; val b = "https://example.org/b"
+        dao.savePodcast(Podcast(stableHash(a), "A", a, autoSkip = false))
+        dao.savePodcast(Podcast(stableHash(b), "B", b))
+        val calls = mutableListOf<String>()
+        suspend fun fetch(url: String): Feed {
+            calls += url
+            if (url == b) throw java.io.IOException("offline")
+            return Feed("A refreshed", listOf(FeedEpisode("new", "New episode", "https://example.org/new.mp3", publishedAt = 5L)))
+        }
+        DefaultSubscription.refreshFeeds(prefs, dao, now = 100_000L, fetcher = ::fetch)
+        assertEquals(setOf(a, b), calls.toSet())
+        assertEquals("A refreshed", dao.podcast(stableHash(a))?.title)
+        assertEquals(false, dao.podcast(stableHash(a))?.autoSkip)
+        assertEquals(1, dao.episodesForPodcast(stableHash(a)).size)
+        assertEquals("B", dao.podcast(stableHash(b))?.title)
+        calls.clear()
+        DefaultSubscription.refreshFeeds(prefs, dao, now = 200_000L, fetcher = ::fetch)
+        assertTrue("Within the interval nothing is fetched", calls.isEmpty())
+        DefaultSubscription.refreshFeeds(prefs, dao, now = 100_000L + 15 * 60 * 1000L, fetcher = ::fetch)
+        assertEquals(setOf(a, b), calls.toSet())
     }
 
     @Test

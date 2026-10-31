@@ -62,6 +62,31 @@ object DefaultSubscription {
         }
     }
 
+    suspend fun refreshFeeds(context: Context, dao: LibraryDao) =
+        refreshFeeds(context.getSharedPreferences("feed_refresh", Context.MODE_PRIVATE), dao)
+
+    /** Fetches new episodes for every subscription, at most once per [minIntervalMs] per launch. */
+    suspend fun refreshFeeds(
+        prefs: SharedPreferences,
+        dao: LibraryDao,
+        now: Long = System.currentTimeMillis(),
+        minIntervalMs: Long = 15 * 60 * 1000L,
+        fetcher: suspend (String) -> Feed = { fetchFeed(it) }
+    ) = withContext(Dispatchers.IO) {
+        val last = prefs.getLong("last", 0L)
+        if (last > 0 && now >= last && now - last < minIntervalMs) return@withContext
+        prefs.edit().putLong("last", now).apply()
+        for (podcast in dao.observePodcasts().first()) {
+            try {
+                subscribeFeed(podcast.feedUrl, dao, fetcher)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // A feed that is down keeps its episodes until the next refresh.
+            }
+        }
+    }
+
     suspend fun ensureDefaultSubscribed(
         context: Context,
         dao: LibraryDao,
