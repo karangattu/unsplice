@@ -13,4 +13,8 @@ class PcmResamplerTest {
         val resampler = PcmResampler(8000, 1)
         assertArrayEquals(shortArrayOf(-100, 200, 300), resampler.convert(shortArrayOf(-100, 200, 300)))
     }
+    @Test fun downsamplesToSixteenKhz() {
+        val resampler = PcmResampler(48000, 1, 16000)
+        assertArrayEquals(shortArrayOf(200, 500), resampler.convert(shortArrayOf(100, 200, 300, 400, 500, 600)))
+    }
 }

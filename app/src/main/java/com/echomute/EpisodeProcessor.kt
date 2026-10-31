@@ -3,6 +3,7 @@ package com.echomute
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -90,6 +91,15 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
             }
         } finally {
             dao.saveEpisode(episode.copy(status = "READY", fingerprintPath = fingerprintPath))
+        }
+
+        // Transcription is by far the slowest pass, so it runs once the episode is READY; its segments appear when it finishes.
+        try {
+            val found = transcriptSegments(context, audio, directory) { isActive }
+            for ((confidence, group) in found.groupBy({ it.second }, { it.first }).toSortedMap(reverseOrder())) {
+                saveNewSegments(dao, episode.id, group, "transcript", confidence)
+            }
+        } catch (_: Exception) {
         }
     } catch (e: Exception) {
         if (!audio.isFile) {
