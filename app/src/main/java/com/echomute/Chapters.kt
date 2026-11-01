@@ -84,3 +84,37 @@ private fun int32(b: ByteArray, at: Int) =
 
 private fun syncsafe(b: ByteArray, at: Int) =
     (b[at].toInt() and 0x7F shl 21) or (b[at + 1].toInt() and 0x7F shl 14) or (b[at + 2].toInt() and 0x7F shl 7) or (b[at + 3].toInt() and 0x7F)
+
+fun writeChapters(file: java.io.File, chapters: List<Chapter>) {
+    file.bufferedWriter().use { out ->
+        for (c in chapters.sortedBy { it.startMs }) {
+            out.write("${c.startMs}\t${c.endMs ?: -1L}\t${c.title.replace('\t', ' ').replace('\n', ' ')}\n")
+        }
+    }
+}
+
+fun readChapters(file: java.io.File): List<Chapter> {
+    if (!file.isFile) return emptyList()
+    return file.useLines { lines ->
+        lines.mapNotNull { line ->
+            val parts = line.split('\t', limit = 3)
+            if (parts.size < 3) return@mapNotNull null
+            val start = parts[0].toLongOrNull() ?: return@mapNotNull null
+            val endRaw = parts[1].toLongOrNull() ?: -1L
+            Chapter(start, endRaw.takeIf { it >= 0L }, parts[2])
+        }.toList()
+    }
+}
+
+fun currentChapter(chapters: List<Chapter>, positionMs: Long, durationMs: Long?): Chapter? {
+    if (chapters.isEmpty()) return null
+    val sorted = chapters.sortedBy { it.startMs }
+    for (i in sorted.indices.reversed()) {
+        val c = sorted[i]
+        if (positionMs >= c.startMs) {
+            val end = c.endMs ?: sorted.getOrNull(i + 1)?.startMs ?: durationMs ?: Long.MAX_VALUE
+            if (positionMs < end) return c
+        }
+    }
+    return null
+}

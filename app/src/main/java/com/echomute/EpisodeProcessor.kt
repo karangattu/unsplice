@@ -66,6 +66,7 @@ suspend fun processEpisode(
                 val embedded = audio.inputStream().buffered().use { readId3Chapters(it) }
                 val (chapters, confidence) = if (embedded.isNotEmpty()) embedded to 0.9f
                     else episode.chaptersUrl?.let { fetchJsonChapters(it) to 0.7f } ?: (emptyList<Chapter>() to 0f)
+                if (chapters.isNotEmpty()) writeChapters(File(directory, "chapters.tsv"), chapters)
                 saveNewSegments(dao, episode.id, sponsorSegments(chapters, durationMs(audio)), "chapter", confidence)
             } catch (_: Exception) {
             }

@@ -21,11 +21,14 @@ class DefaultSubscriptionTest {
         override fun observePodcasts(): Flow<List<Podcast>> = flowOf(podcasts.values.toList())
         override suspend fun podcast(id: String): Podcast? = podcasts[id]
         override fun observeEpisodes(id: String): Flow<List<Episode>> = flowOf(episodes.values.filter { it.podcastId == id })
+        override fun observeAllEpisodes(): Flow<List<Episode>> = flowOf(episodes.values.toList())
         override suspend fun episodesForPodcast(id: String): List<Episode> = episodes.values.filter { it.podcastId == id }
         override suspend fun episodesWithFingerprints(): List<Episode> = episodes.values.filter { it.fingerprintPath != null }
         override fun observeDownloads(): Flow<List<EpisodeFile>> = flowOf(episodes.values.mapNotNull { e -> e.localPath?.let { EpisodeFile(e.id, it) } })
         override suspend fun savePosition(id: String, positionMs: Long, durationMs: Long?) { episodes[id]?.let { episodes[id] = it.copy(positionMs = positionMs, durationMs = durationMs, finished = false) } }
         override suspend fun markFinished(id: String) { episodes[id]?.let { episodes[id] = it.copy(positionMs = 0, finished = true) } }
+        override suspend fun setFinished(id: String, finished: Boolean) { episodes[id]?.let { episodes[id] = it.copy(positionMs = 0, finished = finished) } }
+        override suspend fun setStarred(id: String, starred: Boolean) { episodes[id]?.let { episodes[id] = it.copy(starred = starred) } }
         override suspend fun episode(id: String): Episode? = episodes[id]
         override suspend fun segments(id: String): List<AdSegment> = emptyList()
         override fun observeAutoSkip(episodeId: String): Flow<Boolean?> = flowOf(null)

@@ -63,4 +63,19 @@ class ChaptersTest {
         assertEquals(listOf(Segment(60_000, 120_000), Segment(300_000, 330_000), Segment(330_000, 400_000)), sponsorSegments(chapters, 400_000))
         assertEquals(listOf(Segment(60_000, 120_000), Segment(300_000, 330_000)), sponsorSegments(chapters, null))
     }
+
+    @Test fun roundTripsChaptersAndResolvesActiveChapter() {
+        val file = java.io.File.createTempFile("chapters", ".tsv")
+        try {
+            val chapters = listOf(Chapter(0, 60_000, "Intro"), Chapter(60_000, null, "Main Topic"), Chapter(180_000, 240_000, "Outro"))
+            writeChapters(file, chapters)
+            val loaded = readChapters(file)
+            assertEquals(chapters, loaded)
+            assertEquals("Intro", currentChapter(loaded, 30_000, 240_000)?.title)
+            assertEquals("Main Topic", currentChapter(loaded, 120_000, 240_000)?.title)
+            assertEquals("Outro", currentChapter(loaded, 200_000, 240_000)?.title)
+        } finally {
+            file.delete()
+        }
+    }
 }

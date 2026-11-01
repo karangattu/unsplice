@@ -54,10 +54,12 @@ class PlaybackProgressTest {
             AdSegment(1, "e1", 10_000L, 40_000L, "Sponsor", 0.9f),
             AdSegment(2, "e1", 60_000L, 75_000L, "Promo", 0.5f)
         )
+        val chapters = listOf(Chapter(0L, 50_000L, "Opening Segment"), Chapter(50_000L, 120_000L, "Deep Dive"))
         compose.setContent {
-            PlaybackProgress(30_000L, 120_000L, segments) {}
+            PlaybackProgress(30_000L, 120_000L, segments, chapters) {}
             MiniPlaybackProgress(30_000L, 120_000L, segments)
         }
         compose.onNodeWithText("2 ad segments detected • 30s skipped").assertExists()
+        compose.onNodeWithText("Opening Segment").assertExists()
     }
 }

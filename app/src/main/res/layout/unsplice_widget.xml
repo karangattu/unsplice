@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1E1F24"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Unsplice"
+            android:textColor="#F0F0F5"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Tap to open player"
+            android:textColor="#9E9EB0"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/widget_rewind"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:minWidth="44dp"
+        android:text="-15s"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/widget_play_pause"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:minWidth="56dp"
+        android:text="Play"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/widget_forward"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:minWidth="44dp"
+        android:text="+30s"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/widget_skip_ad"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:minWidth="56dp"
+        android:text="Skip Ad"
+        android:textColor="#FFB300"
+        android:textSize="11sp" />
+</LinearLayout>

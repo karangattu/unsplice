@@ -19,27 +19,33 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -53,11 +59,14 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.work.*
+import java.io.File
+import java.io.IOException
+import kotlin.coroutines.resume
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,10 +77,6 @@ import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import java.io.File
-import java.io.IOException
-import kotlin.coroutines.resume
-import kotlin.math.roundToInt
 
 private val PocketCastsRed = Color(0xFFEE3838)
 private val PocketCastsDark = Color(0xFF121316)
@@ -120,12 +125,29 @@ private fun formatTime(ms: Long): String {
 }
 
 @Composable
-internal fun PlaybackProgress(position: Long, duration: Long, segments: List<AdSegment>, onSeek: (Long) -> Unit) {
+internal fun PlaybackProgress(
+    position: Long,
+    duration: Long,
+    segments: List<AdSegment>,
+    chapters: List<Chapter> = emptyList(),
+    onSeek: (Long) -> Unit
+) {
     if (duration <= 0) return
     var scrubPosition by remember(duration) { mutableStateOf<Long?>(null) }
     val shownPosition = scrubPosition ?: position
     val fraction = (shownPosition.toFloat() / duration).coerceIn(0f, 1f)
+    val activeChapter = remember(chapters, shownPosition, duration) { currentChapter(chapters, shownPosition, duration) }
     Column {
+        if (activeChapter != null && activeChapter.title.isNotBlank()) {
+            Text(
+                activeChapter.title,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(bottom = 2.dp).testTag("current-chapter-title")
+            )
+        }
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(6.dp)) {
                 val y = size.height / 2
@@ -136,6 +158,12 @@ internal fun PlaybackProgress(position: Long, duration: Long, segments: List<AdS
                     val end = (ad.endMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
                     val color = if (ad.confidence >= AUTO_SKIP_CONFIDENCE) PocketCastsAdGold else PocketCastsAdGold.copy(alpha = 0.45f)
                     if (end > start) drawLine(color, Offset(start, y), Offset(end, y), size.height, StrokeCap.Round)
+                }
+                chapters.forEach { chapter ->
+                    if (chapter.startMs in 1 until duration) {
+                        val x = (chapter.startMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
+                        drawLine(Color.White.copy(alpha = 0.7f), Offset(x, 0f), Offset(x, size.height), strokeWidth = 2f)
+                    }
                 }
             }
             Slider(
@@ -241,6 +269,73 @@ internal fun PodcastArtwork(title: String, url: String?, size: Dp = 44.dp) {
 }
 
 @Composable
+private fun TranscriptDialog(
+    episodeTitle: String,
+    lines: List<TranscriptLine>,
+    currentPositionMs: Long,
+    onSeek: (Long) -> Unit,
+    onMarkAd: (TranscriptLine) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val filtered = remember(lines, query) { filterTranscriptLines(lines, query) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Transcript • $episodeTitle", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search transcript") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag("transcript-search")
+                )
+                if (filtered.isEmpty()) {
+                    Text("No matching transcript lines.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn(Modifier.weight(1f, fill = false)) {
+                        items(filtered, key = { it.startMs }) { line ->
+                            val active = currentPositionMs in line.startMs..line.endMs
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (active) PocketCastsRed.copy(alpha = 0.18f) else Color.Transparent)
+                                    .clickable { onSeek(line.startMs) }
+                                    .padding(vertical = 6.dp, horizontal = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    formatTime(line.startMs),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (active) PocketCastsRed else PocketCastsAdGold,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.width(48.dp)
+                                )
+                                Text(
+                                    line.text,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = { onMarkAd(line) }) {
+                                    Text("Flag ad", style = MaterialTheme.typography.labelSmall, color = PocketCastsAdGold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
+}
+
+@Composable
 private fun LibraryScreen() {
     val context = LocalContext.current
     val dao = remember { LibraryDatabase.get(context).library() }
@@ -260,6 +355,9 @@ private fun LibraryScreen() {
         }
     }
     val podcasts by dao.observePodcasts().collectAsState(initial = emptyList())
+    val allEpisodes by dao.observeAllEpisodes().collectAsState(initial = emptyList())
+    val podcastsById = remember(podcasts) { podcasts.associateBy { it.id } }
+    val unplayedCounts = remember(allEpisodes) { unplayedCountsByPodcast(allEpisodes) }
     val activeProgressMap by EpisodeProgressTracker.progress.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf(emptyList<PodcastSearchResult>()) }
@@ -269,6 +367,11 @@ private fun LibraryScreen() {
     var message by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     var podcastPendingRemoval by remember { mutableStateOf<Podcast?>(null) }
+    var gridLayout by rememberSaveable { mutableStateOf(false) }
+    var showStatsDialog by rememberSaveable { mutableStateOf(false) }
+    var showSettingsDialog by rememberSaveable { mutableStateOf(false) }
+    var podcastSettingsOpen by rememberSaveable(selectedId) { mutableStateOf(false) }
+    var transcriptDialogEpisode by remember { mutableStateOf<Pair<String, List<TranscriptLine>>?>(null) }
     val selected = podcasts.firstOrNull { it.id == selectedId }
     val episodeFlow = remember(selectedId) { selectedId?.let { dao.observeEpisodes(it) } }
     val episodes = if (episodeFlow != null) episodeFlow.collectAsState(initial = emptyList()).value else emptyList()
@@ -279,13 +382,24 @@ private fun LibraryScreen() {
     var episodeQuery by rememberSaveable(selectedId) { mutableStateOf("") }
     var episodeSearchOpen by rememberSaveable(selectedId) { mutableStateOf(false) }
     var expandedSegmentEpisodes by rememberSaveable(selectedId) { mutableStateOf(emptyList<String>()) }
+    var expandedNotesEpisodes by rememberSaveable(selectedId) { mutableStateOf(emptyList<String>()) }
+    var smartFilter by rememberSaveable { mutableStateOf("New Releases") }
+    var smartQuery by rememberSaveable { mutableStateOf("") }
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(false) }
     var currentId by remember { mutableStateOf<String?>(null) }
     var segments by remember { mutableStateOf(emptyList<AdSegment>()) }
+    var chapters by remember { mutableStateOf(emptyList<Chapter>()) }
+    var showPlayerChapters by rememberSaveable { mutableStateOf(false) }
     val prefs = remember { context.getSharedPreferences("playback", android.content.Context.MODE_PRIVATE) }
+    val effectsPrefs = remember { context.getSharedPreferences("audio_effects", android.content.Context.MODE_PRIVATE) }
+    val statsPrefs = remember { context.getSharedPreferences("listening_stats", android.content.Context.MODE_PRIVATE) }
+    var trimSilence by remember { mutableStateOf(effectsPrefs.getBoolean("trimSilence", false)) }
+    var voiceBoost by remember { mutableStateOf(effectsPrefs.getBoolean("voiceBoost", false)) }
+    var autoDeletePlayed by remember { mutableStateOf(effectsPrefs.getBoolean("autoDeletePlayed", false)) }
+    var sleepLabel by remember { mutableStateOf("Off") }
     var lastSkip by remember { mutableStateOf<String?>(null) }
     var speed by remember { mutableFloatStateOf(1f) }
     var tab by remember { mutableStateOf("Library") }
@@ -301,7 +415,6 @@ private fun LibraryScreen() {
         return QueueItem(episode.id, local?.toURI()?.toString() ?: episode.audioUrl, episode.title, podcast.title, episode.publishedAt).toMediaItem()
     }
 
-    /** Playing or queueing an episode gets its ads found, so they are skipped by the time the queue reaches it. Runs without asking for the notification permission. */
     fun prepareForPlayback(episode: Episode) {
         if (episode.status !in listOf("DOWNLOADING", "QUEUED", "PROCESSING", "READY")) scope.launch { enqueueEpisode(context, dao, episode) }
     }
@@ -327,6 +440,16 @@ private fun LibraryScreen() {
             DefaultSubscription.refreshFeeds(context, dao)
         }
         update = checkForUpdate(context)
+    }
+
+    LaunchedEffect(podcasts, allEpisodes) {
+        val autoDownloadPodcastIds = podcasts.filter { it.autoDownload }.map { it.id }.toSet()
+        if (autoDownloadPodcastIds.isNotEmpty()) {
+            allEpisodes
+                .filter { it.podcastId in autoDownloadPodcastIds && !it.finished && it.status == "NOT_DOWNLOADED" }
+                .take(2)
+                .forEach { enqueueEpisode(context, dao, it) }
+        }
     }
 
     DisposableEffect(context) {
@@ -358,6 +481,13 @@ private fun LibraryScreen() {
         onDispose { MediaController.releaseFuture(future); controller = null }
     }
 
+    LaunchedEffect(currentId) {
+        val id = currentId
+        chapters = if (id == null) emptyList() else withContext(Dispatchers.IO) {
+            readChapters(File(context.filesDir, "episodes/$id/chapters.tsv"))
+        }
+    }
+
     LaunchedEffect(controller) {
         while (true) {
             controller?.let { player ->
@@ -370,6 +500,13 @@ private fun LibraryScreen() {
                 speed = player.playbackParameters.speed
                 segments = currentId?.let { dao.segments(it) } ?: emptyList()
                 lastSkip = prefs.getString("episode", null)
+                val sleepUntil = prefs.getLong("sleepUntilEpochMs", 0L)
+                val sleepEoe = prefs.getBoolean("sleepEndOfEpisode", false)
+                sleepLabel = when {
+                    sleepEoe -> "End of ep"
+                    sleepUntil > System.currentTimeMillis() -> "${((sleepUntil - System.currentTimeMillis()) / 60_000L + 1)}m"
+                    else -> "Off"
+                }
             }
             delay(500)
         }
@@ -406,6 +543,145 @@ private fun LibraryScreen() {
                 searching = false
             }
         }
+    }
+
+    fun openTranscriptFor(episode: Episode) {
+        scope.launch {
+            val file = File(context.filesDir, "episodes/${episode.id}/transcript.tsv")
+            val words = withContext(Dispatchers.IO) { if (file.isFile) readTranscript(file) else emptyList() }
+            val grouped = groupTranscriptLines(words)
+            if (grouped.isEmpty()) {
+                message = "Transcript is generated when ad analysis finishes."
+            } else {
+                transcriptDialogEpisode = episode.id to grouped
+            }
+        }
+    }
+
+    transcriptDialogEpisode?.let { (epId, lines) ->
+        val epTitle = allEpisodes.firstOrNull { it.id == epId }?.title ?: "Episode"
+        TranscriptDialog(
+            episodeTitle = epTitle,
+            lines = lines,
+            currentPositionMs = if (currentId == epId) position else -1L,
+            onSeek = { targetMs ->
+                if (currentId == epId) {
+                    controller?.seekTo(targetMs)
+                    position = targetMs
+                }
+            },
+            onMarkAd = { line ->
+                scope.launch {
+                    dao.saveSegments(
+                        listOf(
+                            AdSegment(
+                                episodeId = epId,
+                                startMs = line.startMs,
+                                endMs = (line.endMs + 2_000L).coerceAtLeast(line.startMs + 3_000L),
+                                source = "transcript",
+                                confidence = 0.95f
+                            )
+                        )
+                    )
+                    message = "Marked ${formatTime(line.startMs)} as ad segment"
+                }
+            },
+            onDismiss = { transcriptDialogEpisode = null }
+        )
+    }
+
+    if (showStatsDialog) {
+        val stats = remember(showStatsDialog, position) { ListeningStatsStore.read(statsPrefs) }
+        AlertDialog(
+            onDismissRequest = { showStatsDialog = false },
+            title = { Text("Listening Stats & Time Saved") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Total listening time: ${formatCompactDuration(stats.totalListenedMs).ifEmpty { "0s" }}", fontWeight = FontWeight.SemiBold)
+                    Text("Total time saved: ${formatCompactDuration(stats.totalSavedMs).ifEmpty { "0s" }}", color = PocketCastsAdGold, fontWeight = FontWeight.Bold)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    Text("Ads & intros skipped: ${formatCompactDuration(stats.adSkippedMs).ifEmpty { "0s" }}", style = MaterialTheme.typography.bodySmall)
+                    Text("Variable speed saved: ${formatCompactDuration(stats.speedSavedMs).ifEmpty { "0s" }}", style = MaterialTheme.typography.bodySmall)
+                    Text("Trim silence saved: ${formatCompactDuration(stats.silenceSavedMs).ifEmpty { "0s" }}", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showStatsDialog = false }) { Text("Done") }
+            }
+        )
+    }
+
+    if (showSettingsDialog) {
+        val storageList = remember(showSettingsDialog, podcasts, allEpisodes) {
+            calculatePodcastStorage(context.filesDir, podcasts, allEpisodes)
+        }
+        AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            title = { Text("Audio Effects & Storage") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Trim silence globally", style = MaterialTheme.typography.bodyMedium)
+                        Switch(
+                            checked = trimSilence,
+                            onCheckedChange = {
+                                trimSilence = it
+                                effectsPrefs.edit().putBoolean("trimSilence", it).apply()
+                            }
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Voice boost (volume leveling)", style = MaterialTheme.typography.bodyMedium)
+                        Switch(
+                            checked = voiceBoost,
+                            onCheckedChange = {
+                                voiceBoost = it
+                                effectsPrefs.edit().putBoolean("voiceBoost", it).apply()
+                            }
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Auto-delete played downloads", style = MaterialTheme.typography.bodyMedium)
+                        Switch(
+                            checked = autoDeletePlayed,
+                            onCheckedChange = {
+                                autoDeletePlayed = it
+                                effectsPrefs.edit().putBoolean("autoDeletePlayed", it).apply()
+                            }
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    Text("Downloaded storage", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    if (storageList.isEmpty()) {
+                        Text("No downloaded episodes on disk.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        storageList.forEach { usage ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(usage.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("${usage.episodeCount} ep • ${formatMegabytes(usage.bytes)} MB", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        val eps = dao.episodesForPodcast(usage.podcastId)
+                                        eps.forEach { ep ->
+                                            File(context.filesDir, "episodes/${ep.id}").deleteRecursively()
+                                            if (ep.localPath != null) {
+                                                dao.saveEpisode(ep.copy(localPath = null, fingerprintPath = null, status = "NOT_DOWNLOADED"))
+                                            }
+                                        }
+                                        showSettingsDialog = false
+                                    }
+                                }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSettingsDialog = false }) { Text("Done") }
+            }
+        )
     }
 
     podcastPendingRemoval?.let { targetPodcast ->
@@ -475,7 +751,7 @@ private fun LibraryScreen() {
                             MiniPlaybackProgress(position, duration, segments)
                         }
                         if (playerExpanded) {
-                            PlaybackProgress(position, duration, segments) { target ->
+                            PlaybackProgress(position, duration, segments, chapters) { target ->
                                 controller?.seekTo(target)
                                 position = target
                             }
@@ -484,15 +760,31 @@ private fun LibraryScreen() {
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                TextButton(onClick = {
-                                    speed = when (speed) {
-                                        1f -> 1.25f
-                                        1.25f -> 1.5f
-                                        1.5f -> 2f
-                                        else -> 1f
-                                    }
-                                    controller?.setPlaybackSpeed(speed)
-                                }) { Text("${speed}x", fontWeight = FontWeight.Bold, color = PocketCastsRed) }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        modifier = Modifier.size(28.dp).testTag("speed-down"),
+                                        onClick = {
+                                            speed = stepSpeed(speed, -0.1f)
+                                            controller?.setPlaybackSpeed(speed)
+                                        }
+                                    ) { Icon(Icons.Filled.Remove, contentDescription = "Decrease speed", modifier = Modifier.size(16.dp)) }
+                                    TextButton(onClick = {
+                                        speed = when (speed) {
+                                            1f -> 1.25f
+                                            1.25f -> 1.5f
+                                            1.5f -> 2f
+                                            else -> 1f
+                                        }
+                                        controller?.setPlaybackSpeed(speed)
+                                    }) { Text("${speed}x", fontWeight = FontWeight.Bold, color = PocketCastsRed) }
+                                    IconButton(
+                                        modifier = Modifier.size(28.dp).testTag("speed-up"),
+                                        onClick = {
+                                            speed = stepSpeed(speed, 0.1f)
+                                            controller?.setPlaybackSpeed(speed)
+                                        }
+                                    ) { Icon(Icons.Filled.Add, contentDescription = "Increase speed", modifier = Modifier.size(16.dp)) }
+                                }
 
                                 OutlinedButton(
                                     onClick = { controller?.seekTo((position - 15_000).coerceAtLeast(0)) },
@@ -532,7 +824,110 @@ private fun LibraryScreen() {
                                     Spacer(Modifier.width(2.dp))
                                     Icon(Icons.Filled.Forward30, contentDescription = null, modifier = Modifier.size(18.dp))
                                 }
-
+                            }
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                FilterChip(
+                                    selected = trimSilence,
+                                    onClick = {
+                                        trimSilence = !trimSilence
+                                        effectsPrefs.edit().putBoolean("trimSilence", trimSilence).apply()
+                                    },
+                                    label = { Text("Trim silence", style = MaterialTheme.typography.labelSmall) }
+                                )
+                                FilterChip(
+                                    selected = voiceBoost,
+                                    onClick = {
+                                        voiceBoost = !voiceBoost
+                                        effectsPrefs.edit().putBoolean("voiceBoost", voiceBoost).apply()
+                                    },
+                                    label = { Text("Voice boost", style = MaterialTheme.typography.labelSmall) }
+                                )
+                                FilterChip(
+                                    selected = sleepLabel != "Off",
+                                    onClick = {
+                                        val now = System.currentTimeMillis()
+                                        val until = prefs.getLong("sleepUntilEpochMs", 0L)
+                                        val eoe = prefs.getBoolean("sleepEndOfEpisode", false)
+                                        val remainingMin = if (until > now) (until - now) / 60_000L else 0L
+                                        when {
+                                            !eoe && remainingMin <= 0L -> {
+                                                prefs.edit().putLong("sleepUntilEpochMs", now + 15 * 60_000L).putBoolean("sleepEndOfEpisode", false).apply()
+                                                sleepLabel = "15m"
+                                            }
+                                            remainingMin in 1..15 -> {
+                                                prefs.edit().putLong("sleepUntilEpochMs", now + 30 * 60_000L).putBoolean("sleepEndOfEpisode", false).apply()
+                                                sleepLabel = "30m"
+                                            }
+                                            remainingMin in 16..30 -> {
+                                                prefs.edit().putLong("sleepUntilEpochMs", now + 60 * 60_000L).putBoolean("sleepEndOfEpisode", false).apply()
+                                                sleepLabel = "60m"
+                                            }
+                                            remainingMin > 30 -> {
+                                                prefs.edit().putLong("sleepUntilEpochMs", 0L).putBoolean("sleepEndOfEpisode", true).apply()
+                                                sleepLabel = "End of ep"
+                                            }
+                                            else -> {
+                                                prefs.edit().putLong("sleepUntilEpochMs", 0L).putBoolean("sleepEndOfEpisode", false).apply()
+                                                sleepLabel = "Off"
+                                            }
+                                        }
+                                    },
+                                    label = { Text("Sleep: $sleepLabel", style = MaterialTheme.typography.labelSmall) }
+                                )
+                                if (chapters.isNotEmpty()) {
+                                    FilterChip(
+                                        selected = showPlayerChapters,
+                                        onClick = { showPlayerChapters = !showPlayerChapters },
+                                        label = { Text("Chapters (${chapters.size})", style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                                currentId?.let { playingEpId ->
+                                    val playingEp = allEpisodes.firstOrNull { it.id == playingEpId }
+                                    if (playingEp != null && File(context.filesDir, "episodes/$playingEpId/transcript.tsv").isFile) {
+                                        FilterChip(
+                                            selected = false,
+                                            onClick = { openTranscriptFor(playingEp) },
+                                            label = { Text("Transcript", style = MaterialTheme.typography.labelSmall) }
+                                        )
+                                    }
+                                }
+                            }
+                            if (showPlayerChapters && chapters.isNotEmpty()) {
+                                Column(Modifier.fillMaxWidth().heightIn(max = 160.dp).padding(top = 4.dp)) {
+                                    LazyColumn {
+                                        items(chapters.size) { idx ->
+                                            val ch = chapters[idx]
+                                            val chEnd = ch.endMs ?: chapters.getOrNull(idx + 1)?.startMs ?: duration
+                                            val skippedSeg = segments.firstOrNull { it.startMs == ch.startMs && it.source == "chapter" }
+                                            Row(
+                                                Modifier.fillMaxWidth().clickable {
+                                                    controller?.seekTo(ch.startMs)
+                                                    position = ch.startMs
+                                                }.padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(formatTime(ch.startMs), style = MaterialTheme.typography.labelSmall, color = PocketCastsRed, modifier = Modifier.width(48.dp))
+                                                Text(ch.title, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                TextButton(onClick = {
+                                                    val id = currentId ?: return@TextButton
+                                                    scope.launch {
+                                                        if (skippedSeg != null) {
+                                                            dao.deleteSegment(skippedSeg.id)
+                                                        } else if (chEnd > ch.startMs) {
+                                                            dao.saveSegments(listOf(AdSegment(episodeId = id, startMs = ch.startMs, endMs = chEnd, source = "chapter", confidence = 0.9f)))
+                                                        }
+                                                    }
+                                                }) {
+                                                    Text(if (skippedSeg != null) "Unskip" else "Skip", style = MaterialTheme.typography.labelSmall, color = PocketCastsAdGold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         val currentAd = segments.firstOrNull { position >= it.startMs && position < it.endMs }
@@ -543,7 +938,10 @@ private fun LibraryScreen() {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 if (currentAd != null) {
-                                    TextButton(onClick = { controller?.seekTo(currentAd.endMs) }) {
+                                    TextButton(onClick = {
+                                        ListeningStatsStore.recordAdSkipped(statsPrefs, (currentAd.endMs - position).coerceAtLeast(0L))
+                                        controller?.seekTo(currentAd.endMs)
+                                    }) {
                                         Text("Skip ad", color = PocketCastsAdGold, fontWeight = FontWeight.Bold)
                                     }
                                 }
@@ -567,7 +965,12 @@ private fun LibraryScreen() {
                 }
             }
         NavigationBar {
-            listOf(Triple("Library", Icons.Filled.LibraryMusic, "Library"), Triple("Discover", Icons.Filled.Search, "Discover"), Triple("Up Next", Icons.AutoMirrored.Filled.QueueMusic, "Up Next")).forEach { (label, icon, destination) ->
+            listOf(
+                Triple("Library", Icons.Filled.LibraryMusic, "Library"),
+                Triple("Filters", Icons.Filled.FilterList, "Filters"),
+                Triple("Discover", Icons.Filled.Search, "Discover"),
+                Triple("Up Next", Icons.AutoMirrored.Filled.QueueMusic, "Up Next")
+            ).forEach { (label, icon, destination) ->
                 NavigationBarItem(selected = tab == destination, onClick = { tab = destination; selectedId = null }, icon = { Icon(icon, contentDescription = null) }, label = { Text(label) })
             }
         }
@@ -607,6 +1010,73 @@ private fun LibraryScreen() {
                                     IconButton(enabled = index > 1, onClick = { controller?.moveMediaItem(currentIndex + index, currentIndex + index - 1) }) { Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move $title up") }
                                     IconButton(enabled = index > 0 && index < upcoming.lastIndex, onClick = { controller?.moveMediaItem(currentIndex + index, currentIndex + index + 1) }) { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move $title down") }
                                     IconButton(onClick = { controller?.removeMediaItem(currentIndex + index) }) { Icon(Icons.Filled.Close, contentDescription = "Remove $title from Up Next") }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (tab == "Filters") {
+                Text("Filters", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf("New Releases", "In Progress", "Downloaded", "Starred").forEach { name ->
+                        FilterChip(
+                            selected = smartFilter == name,
+                            onClick = { smartFilter = name },
+                            label = { Text(name, style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.testTag("smart-filter-$name")
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = smartQuery,
+                    onValueChange = { smartQuery = it },
+                    label = { Text("Filter episodes across all shows") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                )
+                val filteredSmart = remember(allEpisodes, smartFilter, smartQuery) {
+                    filterSmartEpisodes(allEpisodes, smartFilter, smartQuery)
+                }
+                if (filteredSmart.isEmpty()) {
+                    Text("No episodes in $smartFilter.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+                } else {
+                    LazyColumn(Modifier.weight(1f)) {
+                        items(filteredSmart, key = { it.id }) { ep ->
+                            val pod = podcastsById[ep.podcastId]
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    PodcastArtwork(pod?.title ?: ep.title, pod?.artworkUrl, size = 40.dp)
+                                    Spacer(Modifier.width(10.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(ep.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        val meta = listOfNotNull(pod?.title, ep.publishedAt?.let(::formatPublished), progressLabel(ep.positionMs, ep.durationMs, ep.finished))
+                                        Text(meta.joinToString(" • "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                    }
+                                    IconButton(onClick = { scope.launch { dao.setStarred(ep.id, !ep.starred) } }) {
+                                        Icon(if (ep.starred) Icons.Filled.Star else Icons.Filled.StarBorder, contentDescription = "Star episode", tint = if (ep.starred) PocketCastsAdGold else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    IconButton(onClick = {
+                                        if (pod != null) {
+                                            controller?.let { player ->
+                                                val existing = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == ep.id }
+                                                val index = existing ?: player.mediaItemCount.also { player.addMediaItem(mediaItem(ep, pod)) }
+                                                if (index != player.currentMediaItemIndex || player.playbackState == Player.STATE_ENDED) player.seekTo(index, 0)
+                                                player.prepare()
+                                                player.play()
+                                                prepareForPlayback(ep)
+                                            }
+                                        }
+                                    }) {
+                                        Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${ep.title}", tint = PocketCastsRed)
+                                    }
                                 }
                             }
                         }
@@ -706,6 +1176,15 @@ private fun LibraryScreen() {
                     if (!version.isNullOrBlank()) {
                         Text("v$version", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    IconButton(onClick = { gridLayout = !gridLayout }, modifier = Modifier.testTag("toggle-library-layout")) {
+                        Icon(if (gridLayout) Icons.AutoMirrored.Filled.ViewList else Icons.Filled.GridView, contentDescription = "Toggle grid layout")
+                    }
+                    IconButton(onClick = { showStatsDialog = true }, modifier = Modifier.testTag("open-stats")) {
+                        Icon(Icons.Filled.Insights, contentDescription = "Listening stats")
+                    }
+                    IconButton(onClick = { showSettingsDialog = true }, modifier = Modifier.testTag("open-settings")) {
+                        Icon(Icons.Filled.Tune, contentDescription = "Audio and storage settings")
+                    }
                 }
                 update?.let { release ->
                     Card(
@@ -723,33 +1202,72 @@ private fun LibraryScreen() {
                 }
                 Text("Your podcasts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
                 if (podcasts.isEmpty()) Text("Find a podcast in Discover to get started.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LazyColumn(Modifier.weight(1f)) {
-                    items(podcasts, key = { it.id }) { podcast ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable { selectedId = podcast.id },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                PodcastArtwork(podcast.title, podcast.artworkUrl)
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(podcast.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                                    Text(
-                                        if (podcast.autoSkip) "Auto-skip active" else "Auto-skip off",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (podcast.autoSkip) PocketCastsAdGold else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                if (gridLayout) {
+                    val rows = remember(podcasts) { podcasts.chunked(3) }
+                    LazyColumn(Modifier.weight(1f)) {
+                        items(rows.size) { rowIndex ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                for (podcast in rows[rowIndex]) {
+                                    val unplayed = unplayedCounts[podcast.id] ?: 0
+                                    Column(
+                                        Modifier.weight(1f).clickable { selectedId = podcast.id },
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Box {
+                                            PodcastArtwork(podcast.title, podcast.artworkUrl, size = 92.dp)
+                                            if (unplayed > 0) {
+                                                Box(
+                                                    Modifier
+                                                        .align(Alignment.TopEnd)
+                                                        .padding(4.dp)
+                                                        .background(PocketCastsRed, CircleShape)
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("$unplayed", style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                        Text(podcast.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                                    }
                                 }
-                                TextButton(onClick = { podcastPendingRemoval = podcast }) {
-                                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                                repeat(3 - rows[rowIndex].size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(Modifier.weight(1f)) {
+                        items(podcasts, key = { it.id }) { podcast ->
+                            val unplayed = unplayedCounts[podcast.id] ?: 0
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable { selectedId = podcast.id },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    PodcastArtwork(podcast.title, podcast.artworkUrl)
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(podcast.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                        val statusLabel = buildString {
+                                            append(if (podcast.autoSkip) "Auto-skip active" else "Auto-skip off")
+                                            if (unplayed > 0) append(" • $unplayed unplayed")
+                                        }
+                                        Text(
+                                            statusLabel,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (podcast.autoSkip) PocketCastsAdGold else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    TextButton(onClick = { podcastPendingRemoval = podcast }) {
+                                        Text("Remove", color = MaterialTheme.colorScheme.error)
+                                    }
                                 }
                             }
                         }
@@ -773,6 +1291,10 @@ private fun LibraryScreen() {
                             PodcastArtwork(selected.title, selected.artworkUrl)
                             Spacer(Modifier.width(12.dp))
                             Text(selected.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            IconButton(
+                                onClick = { podcastSettingsOpen = !podcastSettingsOpen },
+                                modifier = Modifier.testTag("toggle-podcast-settings")
+                            ) { Icon(Icons.Filled.Settings, contentDescription = "Podcast settings") }
                             IconButton(enabled = !refreshing, onClick = {
                                 scope.launch {
                                     refreshing = true
@@ -794,6 +1316,33 @@ private fun LibraryScreen() {
                                     checkedTrackColor = PocketCastsRed
                                 )
                             )
+                        }
+                        if (podcastSettingsOpen) {
+                            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Skip intro", style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    val next = when (selected.skipIntroSec) { 0 -> 15; 15 -> 30; 30 -> 45; 45 -> 60; else -> 0 }
+                                    scope.launch { dao.savePodcast(selected.copy(skipIntroSec = next)) }
+                                }) { Text("${selected.skipIntroSec}s", color = PocketCastsRed, fontWeight = FontWeight.Bold) }
+                                Text("Skip outro", style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    val next = when (selected.skipOutroSec) { 0 -> 15; 15 -> 30; 30 -> 45; 45 -> 60; else -> 0 }
+                                    scope.launch { dao.savePodcast(selected.copy(skipOutroSec = next)) }
+                                }) { Text("${selected.skipOutroSec}s", color = PocketCastsRed, fontWeight = FontWeight.Bold) }
+                                Text("Speed", style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    val next = when (selected.customSpeed) { null -> 1.2f; 1.2f -> 1.5f; 1.5f -> 2.0f; else -> null }
+                                    scope.launch { dao.savePodcast(selected.copy(customSpeed = next)) }
+                                }) { Text(selected.customSpeed?.let { "${it}x" } ?: "Default", color = PocketCastsRed, fontWeight = FontWeight.Bold) }
+                            }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Auto-download new episodes", style = MaterialTheme.typography.bodySmall)
+                                Switch(
+                                    checked = selected.autoDownload,
+                                    onCheckedChange = { enabled -> scope.launch { dao.savePodcast(selected.copy(autoDownload = enabled)) } }
+                                )
+                            }
                         }
                     }
                 }
@@ -840,18 +1389,95 @@ private fun LibraryScreen() {
                     items(visibleEpisodes, key = { it.id }) { episode ->
                         val epSegments = segmentsByEpisode[episode.id].orEmpty()
                         val activeProgress = activeProgressMap[episode.id]
+                        var dragAccumulated by remember(episode.id) { mutableFloatStateOf(0f) }
                         Card(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .pointerInput(episode.id, episode.finished) {
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { dragAccumulated = 0f },
+                                        onDragEnd = {
+                                            if (dragAccumulated > 160f) {
+                                                controller?.let { player ->
+                                                    val existing = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == episode.id }
+                                                    if (existing == null || existing < player.currentMediaItemIndex) {
+                                                        if (existing != null) player.removeMediaItem(existing)
+                                                        player.addMediaItem(mediaItem(episode, selected))
+                                                        prepareForPlayback(episode)
+                                                        message = "Added to Up Next"
+                                                    }
+                                                }
+                                            } else if (dragAccumulated < -160f) {
+                                                scope.launch { dao.setFinished(episode.id, !episode.finished) }
+                                            }
+                                            dragAccumulated = 0f
+                                        },
+                                        onHorizontalDrag = { _, dragAmount -> dragAccumulated += dragAmount }
+                                    )
+                                },
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                         ) {
                             Column(Modifier.padding(12.dp)) {
-                                Text(episode.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(episode.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                    IconButton(
+                                        modifier = Modifier.size(28.dp).testTag("star-${episode.id}"),
+                                        onClick = { scope.launch { dao.setStarred(episode.id, !episode.starred) } }
+                                    ) {
+                                        Icon(
+                                            if (episode.starred) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                            contentDescription = if (episode.starred) "Unstar episode" else "Star episode",
+                                            tint = if (episode.starred) PocketCastsAdGold else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
                                 val details = listOfNotNull(episode.publishedAt?.let(::formatPublished), progressLabel(episode.positionMs, episode.durationMs, episode.finished))
                                 if (details.isNotEmpty()) {
                                     Text(details.joinToString(" \u2022 "), style = MaterialTheme.typography.bodySmall,
                                         color = if (episode.finished) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.testTag("episode-details-${episode.id}"))
+                                }
+                                if (!episode.description.isNullOrBlank()) {
+                                    val notesExpanded = episode.id in expandedNotesEpisodes
+                                    Text(
+                                        if (notesExpanded) "Hide show notes" else "Show notes",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier
+                                            .clickable {
+                                                expandedNotesEpisodes = if (notesExpanded) expandedNotesEpisodes - episode.id else expandedNotesEpisodes + episode.id
+                                            }
+                                            .padding(vertical = 2.dp)
+                                            .testTag("notes-${episode.id}")
+                                    )
+                                    if (notesExpanded) {
+                                        Text(episode.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 4.dp))
+                                        val timestamps = remember(episode.description) { extractTimestamps(episode.description) }
+                                        if (timestamps.isNotEmpty()) {
+                                            Row(
+                                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                timestamps.forEach { ts ->
+                                                    AssistChip(
+                                                        onClick = {
+                                                            controller?.let { player ->
+                                                                val existing = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == episode.id }
+                                                                val index = existing ?: player.mediaItemCount.also { player.addMediaItem(mediaItem(episode, selected)) }
+                                                                player.seekTo(index, ts.positionMs)
+                                                                player.prepare()
+                                                                player.play()
+                                                            }
+                                                        },
+                                                        label = { Text(ts.label, style = MaterialTheme.typography.labelSmall) }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 val statusText = activeProgress?.summary() ?: when (episode.status) {
                                     "PROCESSING" -> "Finding ads…"
@@ -923,6 +1549,12 @@ private fun LibraryScreen() {
                                                 Text("Scan again", style = MaterialTheme.typography.bodySmall)
                                             }
                                         }
+                                    }
+                                    if (File(context.filesDir, "episodes/${episode.id}/transcript.tsv").isFile) {
+                                        TextButton(
+                                            onClick = { openTranscriptFor(episode) },
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) { Text("View transcript", style = MaterialTheme.typography.labelSmall, color = PocketCastsRed) }
                                     }
                                 }
                                 episode.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

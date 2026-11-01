@@ -36,4 +36,11 @@ class FeedParserTest {
         val xml = """<!DOCTYPE rss [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><rss><channel><title>&xxe;</title><item><title>X</title><enclosure url="file:///private" type="audio/mpeg"/></item></channel></rss>"""
         try { assertTrue(parseFeed(xml.byteInputStream()).episodes.isEmpty()) } catch (_: Exception) { }
     }
+    @Test fun parsesShowNotesDescriptionAndItunesDuration() {
+        val xml = """<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Show</title><item><title>Ep 1</title><guid>1</guid><description>&lt;p&gt;Intro at 00:30 &amp;amp; topic at 14:20&lt;/p&gt;</description><itunes:duration>01:02:03</itunes:duration><enclosure url="https://example.org/1.mp3" type="audio/mpeg"/></item><item><title>Ep 2</title><guid>2</guid><itunes:duration>180</itunes:duration><enclosure url="https://example.org/2.mp3" type="audio/mpeg"/></item></channel></rss>"""
+        val episodes = parseFeed(xml.byteInputStream()).episodes
+        assertEquals("Intro at 00:30 & topic at 14:20", episodes[0].description)
+        assertEquals(3_723_000L, episodes[0].durationMs)
+        assertEquals(180_000L, episodes[1].durationMs)
+    }
 }

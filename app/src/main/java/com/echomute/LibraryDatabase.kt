@@ -10,7 +10,19 @@ import kotlinx.coroutines.flow.Flow
 const val AUTO_SKIP_CONFIDENCE = 0.5f
 
 @Entity(tableName = "podcasts")
-data class Podcast(@PrimaryKey val id: String, val title: String, val feedUrl: String, val autoSkip: Boolean = true, val artworkUrl: String? = null)
+data class Podcast(
+    @PrimaryKey val id: String,
+    val title: String,
+    val feedUrl: String,
+    val autoSkip: Boolean = true,
+    val artworkUrl: String? = null,
+    @ColumnInfo(defaultValue = "0") val skipIntroSec: Int = 0,
+    @ColumnInfo(defaultValue = "0") val skipOutroSec: Int = 0,
+    val customSpeed: Float? = null,
+    val trimSilence: Boolean? = null,
+    val voiceBoost: Boolean? = null,
+    @ColumnInfo(defaultValue = "0") val autoDownload: Boolean = false
+)
 
 @Entity(tableName = "episodes", indices = [Index("podcastId")], foreignKeys = [ForeignKey(entity = Podcast::class, parentColumns = ["id"], childColumns = ["podcastId"], onDelete = ForeignKey.CASCADE)])
 data class Episode(
@@ -28,6 +40,8 @@ data class Episode(
     @ColumnInfo(defaultValue = "0") val positionMs: Long = 0,
     @ColumnInfo(defaultValue = "0") val finished: Boolean = false,
     val durationMs: Long? = null,
+    val description: String? = null,
+    @ColumnInfo(defaultValue = "0") val starred: Boolean = false
 )
 
 /** An episode whose audio has been downloaded. */
@@ -54,11 +68,14 @@ interface LibraryDao {
     @Query("SELECT * FROM podcasts WHERE id = :id") suspend fun podcast(id: String): Podcast?
     // Newest first. Episodes saved before publish dates were stored fall back to feed order, which is newest first.
     @Query("SELECT * FROM episodes WHERE podcastId = :id ORDER BY publishedAt IS NULL, publishedAt DESC, rowid ASC") fun observeEpisodes(id: String): Flow<List<Episode>>
+    @Query("SELECT * FROM episodes ORDER BY publishedAt IS NULL, publishedAt DESC, rowid ASC") fun observeAllEpisodes(): Flow<List<Episode>>
     @Query("SELECT * FROM episodes WHERE podcastId = :id") suspend fun episodesForPodcast(id: String): List<Episode>
     @Query("SELECT * FROM episodes WHERE fingerprintPath IS NOT NULL") suspend fun episodesWithFingerprints(): List<Episode>
     @Query("SELECT id, localPath FROM episodes WHERE localPath IS NOT NULL") fun observeDownloads(): Flow<List<EpisodeFile>>
     @Query("UPDATE episodes SET positionMs = :positionMs, durationMs = :durationMs, finished = 0 WHERE id = :id") suspend fun savePosition(id: String, positionMs: Long, durationMs: Long?)
     @Query("UPDATE episodes SET positionMs = 0, finished = 1 WHERE id = :id") suspend fun markFinished(id: String)
+    @Query("UPDATE episodes SET positionMs = 0, finished = :finished WHERE id = :id") suspend fun setFinished(id: String, finished: Boolean)
+    @Query("UPDATE episodes SET starred = :starred WHERE id = :id") suspend fun setStarred(id: String, starred: Boolean)
     @Query("SELECT * FROM episodes WHERE id = :id") suspend fun episode(id: String): Episode?
     @Query("SELECT * FROM ad_segments WHERE episodeId = :id ORDER BY startMs") suspend fun segments(id: String): List<AdSegment>
     @Query("SELECT p.autoSkip FROM podcasts p JOIN episodes e ON e.podcastId = p.id WHERE e.id = :episodeId") fun observeAutoSkip(episodeId: String): Flow<Boolean?>
@@ -70,7 +87,7 @@ interface LibraryDao {
     @Query("DELETE FROM episodes WHERE id = :id") suspend fun deleteEpisode(id: String)
 }
 
-@Database(entities = [Podcast::class, Episode::class, AdSegment::class], version = 5, exportSchema = false)
+@Database(entities = [Podcast::class, Episode::class, AdSegment::class], version = 6, exportSchema = false)
 abstract class LibraryDatabase : RoomDatabase() {
     abstract fun library(): LibraryDao
     companion object {
@@ -98,9 +115,21 @@ abstract class LibraryDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE episodes ADD COLUMN durationMs INTEGER")
             }
         }
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE podcasts ADD COLUMN skipIntroSec INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE podcasts ADD COLUMN skipOutroSec INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE podcasts ADD COLUMN customSpeed REAL")
+                db.execSQL("ALTER TABLE podcasts ADD COLUMN trimSilence INTEGER")
+                db.execSQL("ALTER TABLE podcasts ADD COLUMN voiceBoost INTEGER")
+                db.execSQL("ALTER TABLE podcasts ADD COLUMN autoDownload INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE episodes ADD COLUMN description TEXT")
+                db.execSQL("ALTER TABLE episodes ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         @Volatile private var instance: LibraryDatabase? = null
         fun get(context: Context): LibraryDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, "unsplice.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            instance ?: Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, "unsplice.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
         }
     }
 }

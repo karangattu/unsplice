@@ -25,13 +25,34 @@ object DefaultSubscription {
         val feed = fetcher(trimmed)
         val podcastId = stableHash(trimmed)
         val old = dao.podcast(podcastId)
-        dao.savePodcast(Podcast(podcastId, feed.title.ifEmpty { NEWS_JUNKIE_TITLE }, trimmed, old?.autoSkip ?: true, feed.artworkUrl ?: old?.artworkUrl))
+        dao.savePodcast(
+            old?.copy(
+                title = feed.title.ifEmpty { NEWS_JUNKIE_TITLE },
+                feedUrl = trimmed,
+                artworkUrl = feed.artworkUrl ?: old.artworkUrl
+            ) ?: Podcast(podcastId, feed.title.ifEmpty { NEWS_JUNKIE_TITLE }, trimmed, true, feed.artworkUrl)
+        )
         for (item in feed.episodes) {
             val id = stableHash("$podcastId\u0000${item.id}")
             val existing = dao.episode(id)
             dao.saveEpisode(
-                existing?.copy(title = item.title, audioUrl = item.audioUrl, chaptersUrl = item.chaptersUrl, publishedAt = item.publishedAt)
-                    ?: Episode(id, podcastId, item.title, item.audioUrl, chaptersUrl = item.chaptersUrl, publishedAt = item.publishedAt)
+                existing?.copy(
+                    title = item.title,
+                    audioUrl = item.audioUrl,
+                    chaptersUrl = item.chaptersUrl,
+                    publishedAt = item.publishedAt,
+                    description = item.description ?: existing.description,
+                    durationMs = existing.durationMs ?: item.durationMs
+                ) ?: Episode(
+                    id,
+                    podcastId,
+                    item.title,
+                    item.audioUrl,
+                    chaptersUrl = item.chaptersUrl,
+                    publishedAt = item.publishedAt,
+                    description = item.description,
+                    durationMs = item.durationMs
+                )
             )
         }
         podcastId
