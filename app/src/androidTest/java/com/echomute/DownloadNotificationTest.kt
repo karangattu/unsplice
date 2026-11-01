@@ -48,6 +48,7 @@ class DownloadNotificationTest {
                 assertNotNull("Download notification ${id.hashCode()} should be posted; active: ${manager.activeNotifications.joinToString { "${it.id}:${it.notification.extras.getCharSequence(Notification.EXTRA_TEXT)}" }}", notification)
                 assertEquals("Downloading episode", notification!!.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString())
                 assertTrue("Progress should be indeterminate when no percentage is known", notification.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE))
+                assertTrue("Notification should offer a Cancel action", notification.actions?.any { it.title?.toString() == "Cancel" } == true)
                 assertNotNull("Tapping the notification should open the app", notification.contentIntent)
                 val monitor = instrumentation.addMonitor(MainActivity::class.java.name, null, false)
                 try {

@@ -74,4 +74,34 @@ class EpisodeProgressTest {
             EpisodeProgressTracker.clear(id)
         }
     }
+
+    @Test fun formatsAdSummaryWithTotalTimeSaved() {
+        assertNull(formatAdSummary(emptyList(), autoSkip = true))
+        val segments = listOf(
+            AdSegment(id = 1, episodeId = "e1", startMs = 10_000, endMs = 70_000, source = "marker", confidence = 0.9f),
+            AdSegment(id = 2, episodeId = "e1", startMs = 120_000, endMs = 150_000, source = "transcript", confidence = 0.45f)
+        )
+        assertEquals("2 ad segment(s) detected \u2022 1m skipped", formatAdSummary(segments, autoSkip = true))
+        assertEquals("2 ad segment(s) detected \u2022 1m 30s total", formatAdSummary(segments, autoSkip = false))
+    }
+
+    @Test fun filtersAndSortsEpisodesByQueryAndState() {
+        val ep1 = Episode(id = "1", podcastId = "p", title = "Intro to Kotlin", audioUrl = "u1", finished = true)
+        val ep2 = Episode(id = "2", podcastId = "p", title = "Deep Dive Coroutines", audioUrl = "u2", localPath = "/tmp/a.mp3", status = "READY", finished = false)
+        val ep3 = Episode(id = "3", podcastId = "p", title = "Kotlin Flow", audioUrl = "u3", finished = false)
+        val all = listOf(ep3, ep2, ep1)
+
+        assertEquals(listOf("3", "2", "1"), filterEpisodes(all, query = "", filter = "All", oldestFirst = false).map { it.id })
+        assertEquals(listOf("1", "2", "3"), filterEpisodes(all, query = "", filter = "All", oldestFirst = true).map { it.id })
+        assertEquals(listOf("3", "2"), filterEpisodes(all, query = "", filter = "Unplayed", oldestFirst = false).map { it.id })
+        assertEquals(listOf("2"), filterEpisodes(all, query = "", filter = "Downloaded", oldestFirst = false).map { it.id })
+        assertEquals(listOf("3", "1"), filterEpisodes(all, query = "kotlin", filter = "All", oldestFirst = false).map { it.id })
+    }
+
+    @Test fun detectsWhetherFeedIsAlreadySubscribed() {
+        val url = "https://feeds.example.com/show.xml"
+        val podcasts = listOf(Podcast(id = stableHash(url), title = "Show", feedUrl = url))
+        assertTrue(isPodcastSubscribed(podcasts, url))
+        assertFalse(isPodcastSubscribed(podcasts, "https://feeds.example.com/other.xml"))
+    }
 }

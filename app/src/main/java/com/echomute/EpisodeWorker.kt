@@ -9,6 +9,7 @@ import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
@@ -19,7 +20,7 @@ fun shouldDeferAnalysis(charging: Boolean, audioPlaying: Boolean) = !charging &&
 
 class EpisodeWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
-        val id = inputData.getString("episodeId") ?: return Result.failure()
+        val episodeId = inputData.getString("episodeId") ?: return Result.failure()
         val manager = applicationContext.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("downloads", "Podcast downloads", NotificationManager.IMPORTANCE_LOW))
         val openApp = PendingIntent.getActivity(
@@ -27,13 +28,15 @@ class EpisodeWorker(context: Context, parameters: WorkerParameters) : CoroutineW
             Intent(applicationContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val cancelWork = WorkManager.getInstance(applicationContext).createCancelPendingIntent(id)
         fun notification(title: String, progress: EpisodeProgress) = ForegroundInfo(
-            id.hashCode(),
+            episodeId.hashCode(),
             NotificationCompat.Builder(applicationContext, "downloads")
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(title)
                 .setContentText(progress.summary())
                 .setContentIntent(openApp)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancelWork)
                 .setProgress(100, progress.percent?.coerceIn(0, 100) ?: 0, progress.percent == null)
                 .setOnlyAlertOnce(true)
                 .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
@@ -43,11 +46,11 @@ class EpisodeWorker(context: Context, parameters: WorkerParameters) : CoroutineW
         setForeground(notification("Preparing podcast", EpisodeProgress("Getting episode ready")))
         return try {
             val dao = LibraryDatabase.get(applicationContext).library()
-            val title = dao.episode(id)?.title?.takeIf { it.isNotBlank() } ?: "Preparing podcast"
+            val title = dao.episode(episodeId)?.title?.takeIf { it.isNotBlank() } ?: "Preparing podcast"
             coroutineScope {
                 val observer = launch {
                     try {
-                        EpisodeProgressTracker.observe(id).collect { progress ->
+                        EpisodeProgressTracker.observe(episodeId).collect { progress ->
                             if (progress != null) setForeground(notification(title, progress))
                         }
                     } catch (e: CancellationException) {
@@ -56,7 +59,7 @@ class EpisodeWorker(context: Context, parameters: WorkerParameters) : CoroutineW
                         // A notification update must not interrupt the download.
                     }
                 }
-                try { processEpisode(applicationContext, dao, id) }
+                try { processEpisode(applicationContext, dao, episodeId) }
                 finally { observer.cancelAndJoin() }
             }
             Result.success()

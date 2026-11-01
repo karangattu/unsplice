@@ -30,6 +30,7 @@ class DefaultSubscriptionTest {
         override suspend fun segments(id: String): List<AdSegment> = emptyList()
         override fun observeAutoSkip(episodeId: String): Flow<Boolean?> = flowOf(null)
         override fun observeSegments(id: String): Flow<List<AdSegment>> = flowOf(emptyList())
+        override fun observePodcastSegments(podcastId: String): Flow<List<AdSegment>> = flowOf(emptyList())
         override suspend fun deleteSegments(id: String) {}
         override suspend fun deleteSegment(id: Long) {}
         override suspend fun deletePodcast(id: String) { podcasts.remove(id) }

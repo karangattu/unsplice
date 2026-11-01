@@ -63,6 +63,7 @@ interface LibraryDao {
     @Query("SELECT * FROM ad_segments WHERE episodeId = :id ORDER BY startMs") suspend fun segments(id: String): List<AdSegment>
     @Query("SELECT p.autoSkip FROM podcasts p JOIN episodes e ON e.podcastId = p.id WHERE e.id = :episodeId") fun observeAutoSkip(episodeId: String): Flow<Boolean?>
     @Query("SELECT * FROM ad_segments WHERE episodeId = :id ORDER BY startMs") fun observeSegments(id: String): Flow<List<AdSegment>>
+    @Query("SELECT s.* FROM ad_segments s JOIN episodes e ON e.id = s.episodeId WHERE e.podcastId = :podcastId ORDER BY s.startMs") fun observePodcastSegments(podcastId: String): Flow<List<AdSegment>>
     @Query("DELETE FROM ad_segments WHERE episodeId = :id") suspend fun deleteSegments(id: String)
     @Query("DELETE FROM ad_segments WHERE id = :id") suspend fun deleteSegment(id: Long)
     @Query("DELETE FROM podcasts WHERE id = :id") suspend fun deletePodcast(id: String)

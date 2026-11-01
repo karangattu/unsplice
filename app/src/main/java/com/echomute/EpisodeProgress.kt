@@ -111,3 +111,47 @@ class StepProgressReporter(
         onProgress(progress)
     }
 }
+
+fun formatCompactDuration(ms: Long): String {
+    val seconds = (ms.coerceAtLeast(0) / 1000).coerceAtLeast(1)
+    if (seconds < 60) return "${seconds}s"
+    val min = seconds / 60
+    val sec = seconds % 60
+    return if (sec == 0L) "${min}m" else "${min}m ${sec}s"
+}
+
+fun formatAdSummary(segments: List<AdSegment>, autoSkip: Boolean = true): String? {
+    if (segments.isEmpty()) return null
+    val skippedMs = if (autoSkip) segments.filter { it.confidence >= AUTO_SKIP_CONFIDENCE }.sumOf { (it.endMs - it.startMs).coerceAtLeast(0) } else 0L
+    val totalMs = segments.sumOf { (it.endMs - it.startMs).coerceAtLeast(0) }
+    val countLabel = "${segments.size} ad segment(s) detected"
+    return when {
+        skippedMs > 0 -> "$countLabel \u2022 ${formatCompactDuration(skippedMs)} skipped"
+        totalMs > 0 -> "$countLabel \u2022 ${formatCompactDuration(totalMs)} total"
+        else -> countLabel
+    }
+}
+
+fun filterEpisodes(
+    episodes: List<Episode>,
+    query: String = "",
+    filter: String = "All",
+    oldestFirst: Boolean = false
+): List<Episode> {
+    val ordered = if (oldestFirst) episodes.asReversed() else episodes
+    val trimmed = query.trim()
+    return ordered.filter { ep ->
+        val matchesFilter = when (filter) {
+            "Unplayed" -> !ep.finished
+            "Downloaded" -> !ep.localPath.isNullOrBlank()
+            else -> true
+        }
+        matchesFilter && (trimmed.isEmpty() || ep.title.contains(trimmed, ignoreCase = true))
+    }
+}
+
+fun isPodcastSubscribed(podcasts: List<Podcast>, feedUrl: String): Boolean {
+    val trimmed = feedUrl.trim()
+    val hash = stableHash(trimmed)
+    return podcasts.any { it.id == hash || it.feedUrl.equals(trimmed, ignoreCase = true) }
+}

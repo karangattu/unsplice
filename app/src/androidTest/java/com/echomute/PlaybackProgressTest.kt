@@ -48,4 +48,16 @@ class PlaybackProgressTest {
         slider.performTouchInput { up() }
         compose.runOnIdle { assertTrue("Release should seek to the selected position", seek > 40_000L) }
     }
+
+    @Test fun showsAdSummaryAndRendersMiniProgress() {
+        val segments = listOf(
+            AdSegment(1, "e1", 10_000L, 40_000L, "Sponsor", 0.9f),
+            AdSegment(2, "e1", 60_000L, 75_000L, "Promo", 0.5f)
+        )
+        compose.setContent {
+            PlaybackProgress(30_000L, 120_000L, segments) {}
+            MiniPlaybackProgress(30_000L, 120_000L, segments)
+        }
+        compose.onNodeWithText("2 ad segments detected • 30s skipped").assertExists()
+    }
 }

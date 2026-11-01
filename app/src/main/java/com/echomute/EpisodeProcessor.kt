@@ -126,6 +126,11 @@ suspend fun processEpisode(
             throw e
         } catch (_: Exception) {
         }
+    } catch (e: CancellationException) {
+        if (!audio.isFile) {
+            dao.saveEpisode(episode.copy(status = "NOT_DOWNLOADED", error = null))
+        }
+        throw e
     } catch (e: Exception) {
         if (!audio.isFile) {
             dao.saveEpisode(episode.copy(status = "FAILED", error = e.message ?: "Download failed"))

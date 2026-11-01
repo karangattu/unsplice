@@ -21,6 +21,7 @@ class LibraryDatabaseTest {
             dao.saveSegments(listOf(AdSegment(episodeId = "e", startMs = 200000, endMs = 220000)))
             assertEquals("One", dao.episode("e")?.title)
             assertEquals(220000L, dao.segments("e").single().endMs)
+            assertEquals(220000L, dao.observePodcastSegments("p").first().single().endMs)
             assertTrue(dao.episodesForPodcast("other").isEmpty())
             dao.deleteEpisode("e")
             assertNull(dao.episode("e"))

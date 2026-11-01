@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -44,7 +46,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
@@ -130,7 +134,8 @@ internal fun PlaybackProgress(position: Long, duration: Long, segments: List<AdS
                 segments.forEach { ad ->
                     val start = (ad.startMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
                     val end = (ad.endMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
-                    if (end > start) drawLine(PocketCastsAdGold, Offset(start, y), Offset(end, y), size.height, StrokeCap.Round)
+                    val color = if (ad.confidence >= AUTO_SKIP_CONFIDENCE) PocketCastsAdGold else PocketCastsAdGold.copy(alpha = 0.45f)
+                    if (end > start) drawLine(color, Offset(start, y), Offset(end, y), size.height, StrokeCap.Round)
                 }
             }
             Slider(
@@ -145,9 +150,29 @@ internal fun PlaybackProgress(position: Long, duration: Long, segments: List<AdS
                 modifier = Modifier.fillMaxWidth().height(48.dp).semantics { contentDescription = "Playback position" }
             )
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(formatTime(shownPosition), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            formatAdSummary(segments)?.let { summary ->
+                Text(summary, style = MaterialTheme.typography.labelSmall, color = PocketCastsAdGold)
+            }
             Text(formatTime(duration), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+internal fun MiniPlaybackProgress(position: Long, duration: Long, segments: List<AdSegment>) {
+    if (duration <= 0) return
+    val fraction = (position.toFloat() / duration).coerceIn(0f, 1f)
+    Canvas(Modifier.fillMaxWidth().padding(top = 6.dp).height(4.dp).clip(RoundedCornerShape(50))) {
+        val y = size.height / 2
+        drawLine(Color(0xFF484A54), Offset(0f, y), Offset(size.width, y), size.height, StrokeCap.Round)
+        if (fraction > 0) drawLine(PocketCastsRed, Offset(0f, y), Offset(size.width * fraction, y), size.height, StrokeCap.Round)
+        segments.forEach { ad ->
+            val start = (ad.startMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
+            val end = (ad.endMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
+            val color = if (ad.confidence >= AUTO_SKIP_CONFIDENCE) PocketCastsAdGold else PocketCastsAdGold.copy(alpha = 0.45f)
+            if (end > start) drawLine(color, Offset(start, y), Offset(end, y), size.height, StrokeCap.Round)
         }
     }
 }
@@ -195,15 +220,15 @@ private suspend fun loadArtwork(url: String, pixels: Int): Bitmap? {
 }
 
 @Composable
-internal fun PodcastArtwork(title: String, url: String?) {
-    val pixels = (44 * LocalContext.current.resources.displayMetrics.density).roundToInt().coerceAtLeast(1)
+internal fun PodcastArtwork(title: String, url: String?, size: Dp = 44.dp) {
+    val pixels = (size.value * LocalContext.current.resources.displayMetrics.density).roundToInt().coerceAtLeast(1)
     val bitmap by produceState<Bitmap?>(initialValue = null, url, pixels) {
         value = null
         value = url?.let { loadArtwork(it, pixels) }
     }
     val shape = RoundedCornerShape(8.dp)
     Box(
-        modifier = Modifier.size(44.dp).background(Brush.linearGradient(listOf(PocketCastsRed, Color(0xFF8B0000))), shape),
+        modifier = Modifier.size(size).background(Brush.linearGradient(listOf(PocketCastsRed, Color(0xFF8B0000))), shape),
         contentAlignment = Alignment.Center
     ) {
         if (bitmap == null) {
@@ -243,9 +268,17 @@ private fun LibraryScreen() {
     var selectedId by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
+    var podcastPendingRemoval by remember { mutableStateOf<Podcast?>(null) }
     val selected = podcasts.firstOrNull { it.id == selectedId }
     val episodeFlow = remember(selectedId) { selectedId?.let { dao.observeEpisodes(it) } }
     val episodes = if (episodeFlow != null) episodeFlow.collectAsState(initial = emptyList()).value else emptyList()
+    val podcastSegmentsFlow = remember(selectedId) { selectedId?.let { dao.observePodcastSegments(it) } }
+    val podcastSegments = if (podcastSegmentsFlow != null) podcastSegmentsFlow.collectAsState(initial = emptyList()).value else emptyList()
+    val segmentsByEpisode = remember(podcastSegments) { podcastSegments.groupBy { it.episodeId } }
+    var episodeFilter by rememberSaveable(selectedId) { mutableStateOf("All") }
+    var episodeQuery by rememberSaveable(selectedId) { mutableStateOf("") }
+    var episodeSearchOpen by rememberSaveable(selectedId) { mutableStateOf(false) }
+    var expandedSegmentEpisodes by rememberSaveable(selectedId) { mutableStateOf(emptyList<String>()) }
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -358,6 +391,51 @@ private fun LibraryScreen() {
         }
     }
 
+    fun runPodcastSearch() {
+        if (searching || searchQuery.isBlank()) return
+        scope.launch {
+            searching = true
+            message = null
+            try {
+                val results = withContext(Dispatchers.IO) { searchPodcasts(searchQuery) }
+                searchResults = results
+                if (results.isEmpty()) message = "No podcasts found"
+            } catch (e: Exception) {
+                message = e.message ?: "Search failed"
+            } finally {
+                searching = false
+            }
+        }
+    }
+
+    podcastPendingRemoval?.let { targetPodcast ->
+        AlertDialog(
+            onDismissRequest = { podcastPendingRemoval = null },
+            title = { Text("Remove ${targetPodcast.title}?") },
+            text = { Text("This removes the subscription and deletes any downloaded episodes for this podcast.") },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag("confirm-remove-podcast"),
+                    onClick = {
+                        podcastPendingRemoval = null
+                        scope.launch {
+                            val podEpisodes = dao.episodesForPodcast(targetPodcast.id)
+                            if (!removePastItemsIfSafe(podEpisodes.map { it.id }.toSet())) {
+                                message = "Remove episodes for this podcast from Up Next before removing it."
+                            } else {
+                                podEpisodes.forEach { File(context.filesDir, "episodes/${it.id}").deleteRecursively() }
+                                dao.deletePodcast(targetPodcast.id)
+                            }
+                        }
+                    }
+                ) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { podcastPendingRemoval = null }) { Text("Cancel") }
+            }
+        )
+    }
+
     Scaffold(
         bottomBar = {
             Column {
@@ -369,12 +447,15 @@ private fun LibraryScreen() {
                     shadowElevation = 8.dp,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Android 15 draws apps edge-to-edge, so keep the controls above the system navigation bar.
+                    val artistName = controller?.currentMediaItem?.mediaMetadata?.artist?.toString().orEmpty()
+                    val playingPodcast = podcasts.firstOrNull { it.title == artistName }
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            PodcastArtwork(artistName.ifBlank { controller?.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty() }, playingPodcast?.artworkUrl, size = 36.dp)
+                            Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f).clickable { playerExpanded = !playerExpanded }) {
                                 Text(controller?.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
-                                Text(controller?.currentMediaItem?.mediaMetadata?.artist?.toString().orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(artistName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             IconButton(onClick = {
                                 controller?.let { player ->
@@ -391,12 +472,7 @@ private fun LibraryScreen() {
                             }
                         }
                         if (!playerExpanded && duration > 0) {
-                            LinearProgressIndicator(
-                                progress = { (position.toFloat() / duration).coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50)),
-                                color = PocketCastsRed,
-                                trackColor = Color(0xFF484A54)
-                            )
+                            MiniPlaybackProgress(position, duration, segments)
                         }
                         if (playerExpanded) {
                             PlaybackProgress(position, duration, segments) { target ->
@@ -458,33 +534,38 @@ private fun LibraryScreen() {
                                 }
 
                             }
-                            val currentAd = segments.firstOrNull { position >= it.startMs && position < it.endMs }
-                            if (currentAd != null) {
-                                TextButton(onClick = { controller?.seekTo(currentAd.endMs) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                                    Text("Skip ad", color = PocketCastsAdGold, fontWeight = FontWeight.Bold)
+                        }
+                        val currentAd = segments.firstOrNull { position >= it.startMs && position < it.endMs }
+                        if (currentAd != null || lastSkip == currentId) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (currentAd != null) {
+                                    TextButton(onClick = { controller?.seekTo(currentAd.endMs) }) {
+                                        Text("Skip ad", color = PocketCastsAdGold, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                if (lastSkip == currentId) {
+                                    TextButton(
+                                        onClick = {
+                                            val id = currentId
+                                            scope.launch {
+                                                val start = prefs.getLong("skipStart", 0)
+                                                if (id != null) dao.segments(id).filter { it.startMs == start }.forEach { dao.deleteSegment(it.id) }
+                                                controller?.seekTo(start + 1)
+                                                prefs.edit().remove("episode").apply()
+                                                lastSkip = null
+                                            }
+                                        }
+                                    ) { Text("Restore last skipped section", color = PocketCastsRed) }
                                 }
                             }
-                            if (lastSkip == currentId) {
-                                TextButton(
-                                    onClick = {
-                                        val id = currentId
-                                        scope.launch {
-                                            val start = prefs.getLong("skipStart", 0)
-                                            // Keep only this section; other ads in this and later episodes stay skipped.
-                                            if (id != null) dao.segments(id).filter { it.startMs == start }.forEach { dao.deleteSegment(it.id) }
-                                            // 1 ms past the start, so the skip message placed exactly at the start doesn't fire again.
-                                            controller?.seekTo(start + 1)
-                                            prefs.edit().remove("episode").apply()
-                                            lastSkip = null
-                                        }
-                                    },
-                                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                                ) { Text("Restore last skipped section", color = PocketCastsRed) }
-                    }
+                        }
                     }
                 }
             }
-        }
         NavigationBar {
             listOf(Triple("Library", Icons.Filled.LibraryMusic, "Library"), Triple("Discover", Icons.Filled.Search, "Discover"), Triple("Up Next", Icons.AutoMirrored.Filled.QueueMusic, "Up Next")).forEach { (label, icon, destination) ->
                 NavigationBarItem(selected = tab == destination, onClick = { tab = destination; selectedId = null }, icon = { Icon(icon, contentDescription = null) }, label = { Text(label) })
@@ -539,6 +620,8 @@ private fun LibraryScreen() {
                     onValueChange = { searchQuery = it },
                     label = { Text("Search podcasts") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { runPodcastSearch() }),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = PocketCastsRed,
@@ -548,21 +631,7 @@ private fun LibraryScreen() {
                 )
                 Button(
                     enabled = !searching && searchQuery.isNotBlank(),
-                    onClick = {
-                        scope.launch {
-                            searching = true
-                            message = null
-                            try {
-                                val results = withContext(Dispatchers.IO) { searchPodcasts(searchQuery) }
-                                searchResults = results
-                                if (results.isEmpty()) message = "No podcasts found"
-                            } catch (e: Exception) {
-                                message = e.message ?: "Search failed"
-                            } finally {
-                                searching = false
-                            }
-                        }
-                    },
+                    onClick = { runPodcastSearch() },
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed),
                     modifier = Modifier.padding(top = 4.dp)
@@ -570,8 +639,9 @@ private fun LibraryScreen() {
 
                 if (searchResults.isNotEmpty()) {
                     Text("Search Results", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-                    LazyColumn(Modifier.heightIn(max = 200.dp)) {
+                    LazyColumn(Modifier.weight(1f)) {
                         items(searchResults, key = { it.feedUrl }) { item ->
+                            val subscribed = isPodcastSubscribed(podcasts, item.feedUrl)
                             Row(
                                 Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -583,12 +653,24 @@ private fun LibraryScreen() {
                                     Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                                     if (item.artist.isNotEmpty()) Text(item.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Button(
-                                    enabled = !loading,
-                                    onClick = { scope.launch { subscribeUrl(item.feedUrl) } },
-                                    colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed)
-                                ) {
-                                    Text("Subscribe")
+                                if (subscribed) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val hash = stableHash(item.feedUrl.trim())
+                                            podcasts.firstOrNull { it.id == hash || it.feedUrl.equals(item.feedUrl.trim(), ignoreCase = true) }?.let {
+                                                selectedId = it.id
+                                                tab = "Library"
+                                            }
+                                        }
+                                    ) { Text("Subscribed") }
+                                } else {
+                                    Button(
+                                        enabled = !loading,
+                                        onClick = { scope.launch { subscribeUrl(item.feedUrl) } },
+                                        colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed)
+                                    ) {
+                                        Text("Subscribe")
+                                    }
                                 }
                             }
                         }
@@ -600,6 +682,8 @@ private fun LibraryScreen() {
                     onValueChange = { feedUrl = it },
                     label = { Text("Feed URL") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (!loading && feedUrl.isNotBlank()) scope.launch { subscribeUrl(feedUrl) } }),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = PocketCastsRed,
@@ -624,7 +708,6 @@ private fun LibraryScreen() {
                     }
                 }
                 update?.let { release ->
-                    // Releases share one signing key, so opening the APK updates the app in place and keeps its data.
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("update-banner")
@@ -665,17 +748,9 @@ private fun LibraryScreen() {
                                         color = if (podcast.autoSkip) PocketCastsAdGold else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        val episodes = dao.episodesForPodcast(podcast.id)
-                                        if (!removePastItemsIfSafe(episodes.map { it.id }.toSet())) {
-                                            message = "Remove episodes for this podcast from Up Next before removing it."
-                                        } else {
-                                            episodes.forEach { File(context.filesDir, "episodes/${it.id}").deleteRecursively() }
-                                            dao.deletePodcast(podcast.id)
-                                        }
-                                    }
-                                }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                                TextButton(onClick = { podcastPendingRemoval = podcast }) {
+                                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                     }
@@ -722,17 +797,48 @@ private fun LibraryScreen() {
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Episodes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    listOf("All", "Unplayed", "Downloaded").forEach { filterOption ->
+                        FilterChip(
+                            selected = episodeFilter == filterOption,
+                            onClick = { episodeFilter = filterOption },
+                            label = { Text(filterOption, style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.padding(end = 6.dp).testTag("filter-$filterOption")
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = {
+                        episodeSearchOpen = !episodeSearchOpen
+                        if (!episodeSearchOpen) episodeQuery = ""
+                    }) {
+                        Icon(if (episodeSearchOpen) Icons.Filled.Close else Icons.Filled.Search, contentDescription = "Search episodes")
+                    }
                     TextButton(onClick = { oldestFirst = !oldestFirst }, modifier = Modifier.testTag("sort-episodes")) {
                         Icon(Icons.Filled.SwapVert, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
                         Text(if (oldestFirst) "Oldest first" else "Newest first", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                if (episodeSearchOpen) {
+                    OutlinedTextField(
+                        value = episodeQuery,
+                        onValueChange = { episodeQuery = it },
+                        label = { Text("Search episodes") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PocketCastsRed,
+                            focusedLabelColor = PocketCastsRed
+                        ),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp).testTag("episode-search")
+                    )
+                }
+                val visibleEpisodes = remember(episodes, episodeQuery, episodeFilter, oldestFirst) {
+                    filterEpisodes(episodes, episodeQuery, episodeFilter, oldestFirst)
+                }
                 LazyColumn(Modifier.weight(1f).testTag("episodes")) {
-                    items(if (oldestFirst) episodes.asReversed() else episodes, key = { it.id }) { episode ->
-                        val epSegments by dao.observeSegments(episode.id).collectAsState(initial = emptyList())
+                    items(visibleEpisodes, key = { it.id }) { episode ->
+                        val epSegments = segmentsByEpisode[episode.id].orEmpty()
                         val activeProgress = activeProgressMap[episode.id]
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -772,15 +878,40 @@ private fun LibraryScreen() {
                                 }
                                 if (episode.status == "READY") {
                                     if (epSegments.isNotEmpty()) {
-                                        Text("${epSegments.size} ad segment(s) detected", color = PocketCastsAdGold, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                        epSegments.forEach { seg ->
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                val label = when (seg.source) { "marker" -> "ad break"; "chapter" -> "chapter"; "transcript" -> "sponsor read"; else -> "repeat" }
-                                                val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) ", not auto-skipped" else ""
-                                                Text("${formatTime(seg.startMs)} - ${formatTime(seg.endMs)} ($label$manual)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                Spacer(Modifier.width(8.dp))
-                                                TextButton(onClick = { scope.launch { dao.deleteSegment(seg.id) } }) {
-                                                    Text("Keep audio", style = MaterialTheme.typography.bodySmall)
+                                        val segmentsExpanded = episode.id in expandedSegmentEpisodes
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .clickable {
+                                                    expandedSegmentEpisodes = if (segmentsExpanded) expandedSegmentEpisodes - episode.id else expandedSegmentEpisodes + episode.id
+                                                }
+                                                .padding(vertical = 2.dp)
+                                                .testTag("toggle-segments-${episode.id}")
+                                        ) {
+                                            Text(
+                                                formatAdSummary(epSegments, selected.autoSkip).orEmpty(),
+                                                color = PocketCastsAdGold,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Icon(
+                                                if (segmentsExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                                contentDescription = if (segmentsExpanded) "Hide ad segments" else "Show ad segments",
+                                                tint = PocketCastsAdGold,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                        if (segmentsExpanded) {
+                                            epSegments.forEach { seg ->
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    val label = when (seg.source) { "marker" -> "ad break"; "chapter" -> "chapter"; "transcript" -> "sponsor read"; else -> "repeat" }
+                                                    val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) ", not auto-skipped" else ""
+                                                    Text("${formatTime(seg.startMs)} - ${formatTime(seg.endMs)} ($label$manual)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    Spacer(Modifier.width(8.dp))
+                                                    TextButton(onClick = { scope.launch { dao.deleteSegment(seg.id) } }) {
+                                                        Text("Keep audio", style = MaterialTheme.typography.bodySmall)
+                                                    }
                                                 }
                                             }
                                         }
@@ -795,7 +926,7 @@ private fun LibraryScreen() {
                                     }
                                 }
                                 episode.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                                Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Button(
                                         onClick = {
                                             controller?.let { player ->
@@ -824,30 +955,37 @@ private fun LibraryScreen() {
                                             } else message = "Already in Up Next"
                                         } ?: run { message = "Player is starting. Try again." }
                                     }) { Text("Add to Up Next") }
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (episode.localPath != null && File(episode.localPath).isFile) {
-                                        TextButton(onClick = {
-                                            scope.launch {
-                                                if (!removePastItemsIfSafe(setOf(episode.id))) {
-                                                    message = "Remove this episode from Up Next before deleting its download."
-                                                } else {
-                                                    File(context.filesDir, "episodes/${episode.id}").deleteRecursively()
-                                                    dao.saveEpisode(episode.copy(status = "NOT_DOWNLOADED", localPath = null, fingerprintPath = null))
-                                                    dao.deleteSegments(episode.id)
+                                    Spacer(Modifier.weight(1f))
+                                    val isWorking = activeProgress != null || episode.status in listOf("DOWNLOADING", "QUEUED", "PROCESSING")
+                                    if (isWorking) {
+                                        TextButton(
+                                            modifier = Modifier.testTag("cancel-${episode.id}"),
+                                            onClick = { scope.launch { cancelEpisode(context, dao, episode) } }
+                                        ) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    } else {
+                                        if (episode.localPath != null && File(episode.localPath).isFile) {
+                                            TextButton(onClick = {
+                                                scope.launch {
+                                                    if (!removePastItemsIfSafe(setOf(episode.id))) {
+                                                        message = "Remove this episode from Up Next before deleting its download."
+                                                    } else {
+                                                        File(context.filesDir, "episodes/${episode.id}").deleteRecursively()
+                                                        dao.saveEpisode(episode.copy(status = "NOT_DOWNLOADED", localPath = null, fingerprintPath = null))
+                                                        dao.deleteSegments(episode.id)
+                                                    }
                                                 }
+                                            }) { Text("Delete", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                        }
+                                        if (episode.status !in listOf("DOWNLOADING", "QUEUED", "PROCESSING", "READY")) {
+                                            Button(
+                                                onClick = { startDownload(episode) },
+                                                shape = RoundedCornerShape(20.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = PocketCastsSurfaceVariant)
+                                            ) {
+                                                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text(if (episode.status == "FAILED") "Retry" else "Download")
                                             }
-                                        }) { Text("Delete", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                    }
-                                    if (episode.status !in listOf("DOWNLOADING", "QUEUED", "PROCESSING", "READY")) {
-                                        Button(
-                                            onClick = { startDownload(episode) },
-                                            shape = RoundedCornerShape(20.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = PocketCastsSurfaceVariant)
-                                        ) {
-                                            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(Modifier.width(4.dp))
-                                            Text(if (episode.status == "FAILED") "Retry" else "Download")
                                         }
                                     }
                                 }
@@ -861,10 +999,16 @@ private fun LibraryScreen() {
     }
 }
 
-/** Downloads the episode if needed, then finds its ads from scratch. */
 private suspend fun enqueueEpisode(context: android.content.Context, dao: LibraryDao, episode: Episode) {
     dao.deleteSegments(episode.id)
     dao.saveEpisode(episode.copy(status = "QUEUED", error = null))
     val request = OneTimeWorkRequestBuilder<EpisodeWorker>().setInputData(workDataOf("episodeId" to episode.id)).build()
     WorkManager.getInstance(context).enqueueUniqueWork("episode-${episode.id}", ExistingWorkPolicy.KEEP, request)
+}
+
+private suspend fun cancelEpisode(context: android.content.Context, dao: LibraryDao, episode: Episode) {
+    WorkManager.getInstance(context).cancelUniqueWork("episode-${episode.id}")
+    EpisodeProgressTracker.clear(episode.id)
+    val downloaded = episode.localPath?.let(::File)?.isFile == true
+    dao.saveEpisode(episode.copy(status = if (downloaded) "READY" else "NOT_DOWNLOADED", error = null))
 }
