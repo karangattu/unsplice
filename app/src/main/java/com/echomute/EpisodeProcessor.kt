@@ -21,7 +21,6 @@ suspend fun processEpisode(
     val audio = File(directory, "audio")
     val partial = File(directory, "audio.part")
     val pcm = File(directory, "audio.pcm")
-    val pcm16 = File(directory, "audio16k.pcm")
     val chunk = File(directory, "chunk.pcm")
     val fingerprints = File(directory, "fingerprints.bin")
     val reporter = StepProgressReporter(episodeId, onProgress)
@@ -43,11 +42,9 @@ suspend fun processEpisode(
         var fingerprintPath: String? = null
         var decoded = false
         try {
-            // One decode serves both the 8 kHz fingerprinting passes and the 16 kHz transcript pass.
             reporter.beginStage("Decoding audio")
             decoded = try {
-                if (decodeAudio(audio, pcm16, WHISPER_SAMPLE_RATE) { done, total -> reporter.report(done, total) } == WHISPER_SAMPLE_RATE) halveSampleRate(pcm16, pcm)
-                else check(pcm16.renameTo(pcm))
+                decodeAudio(audio, pcm) { done, total -> reporter.report(done, total) }
                 true
             } catch (_: Exception) { false }
 
@@ -116,17 +113,6 @@ suspend fun processEpisode(
         } finally {
             dao.saveEpisode(episode.copy(status = "READY", fingerprintPath = fingerprintPath))
         }
-
-        // Transcription is by far the slowest pass, so it runs once the episode is READY; its segments appear when it finishes.
-        if (decoded && pcm16.isFile) try {
-            val found = transcriptSegments(context, pcm16, directory, reporter)
-            for ((confidence, group) in found.groupBy({ it.second }, { it.first }).toSortedMap(reverseOrder())) {
-                saveNewSegments(dao, episode.id, group, "transcript", confidence)
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-        }
     } catch (e: CancellationException) {
         if (!audio.isFile) {
             dao.saveEpisode(episode.copy(status = "NOT_DOWNLOADED", error = null))
@@ -140,7 +126,6 @@ suspend fun processEpisode(
     } finally {
         EpisodeProgressTracker.clear(episodeId)
         pcm.delete()
-        pcm16.delete()
         chunk.delete()
     }
 }

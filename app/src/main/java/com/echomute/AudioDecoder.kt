@@ -98,26 +98,3 @@ fun decodeAudio(source: File, destination: File, targetRate: Int = 8000, onProgr
         extractor.release()
     }
 }
-
-/** Halves the sample rate of 16-bit mono PCM by averaging each pair of samples. */
-fun halveSampleRate(source: File, destination: File) {
-    source.inputStream().buffered(1 shl 16).use { input ->
-        destination.outputStream().buffered(1 shl 16).use { output ->
-            val bytes = ByteArray(4)
-            while (true) {
-                var size = 0
-                while (size < 4) {
-                    val n = input.read(bytes, size, 4 - size)
-                    if (n < 0) break
-                    size += n
-                }
-                if (size < 4) break
-                val a = (bytes[0].toInt() and 255) or (bytes[1].toInt() shl 8)
-                val b = (bytes[2].toInt() and 255) or (bytes[3].toInt() shl 8)
-                val mean = (a + b) / 2
-                output.write(mean and 255)
-                output.write((mean ushr 8) and 255)
-            }
-        }
-    }
-}

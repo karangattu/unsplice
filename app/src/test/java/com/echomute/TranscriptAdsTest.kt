@@ -111,4 +111,19 @@ class TranscriptAdsTest {
         assertTrue(TRANSCRIPT_CONFIDENCE < AUTO_SKIP_CONFIDENCE)
         assertTrue(TRANSCRIPT_WEAK_CONFIDENCE < TRANSCRIPT_CONFIDENCE)
     }
+
+    @Test fun readsAndWritesTranscriptTsv() {
+        val file = java.io.File.createTempFile("transcript-test", ".tsv")
+        try {
+            val words = listOf(
+                TranscriptWord(0L, 500L, "Hello"),
+                TranscriptWord(500L, 1200L, "world")
+            )
+            writeTranscript(file, words)
+            val readBack = readTranscript(file)
+            assertEquals(words, readBack)
+        } finally {
+            file.delete()
+        }
+    }
 }

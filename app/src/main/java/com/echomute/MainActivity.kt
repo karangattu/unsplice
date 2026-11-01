@@ -551,7 +551,7 @@ private fun LibraryScreen() {
             val words = withContext(Dispatchers.IO) { if (file.isFile) readTranscript(file) else emptyList() }
             val grouped = groupTranscriptLines(words)
             if (grouped.isEmpty()) {
-                message = "Transcript is generated when ad analysis finishes."
+                message = "No transcript available for this episode."
             } else {
                 transcriptDialogEpisode = episode.id to grouped
             }

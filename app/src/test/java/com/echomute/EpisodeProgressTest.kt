@@ -13,13 +13,24 @@ class EpisodeProgressTest {
             EpisodeProgress("Downloading episode", percent = 42, remainingMs = 13_400, detail = "10.5 / 25.0 MB").summary()
         )
         assertEquals(
-            "Transcribing audio for sponsor reads \u2022 60% \u2022 ~1m 25s left",
-            EpisodeProgress("Transcribing audio for sponsor reads", percent = 60, remainingMs = 85_000).summary()
+            "Scanning for repeated ad audio \u2022 60% \u2022 ~1m 25s left",
+            EpisodeProgress("Scanning for repeated ad audio", percent = 60, remainingMs = 85_000).summary()
         )
         assertEquals(
-            "Transcribing audio for sponsor reads \u2022 10% \u2022 ~12m left",
-            EpisodeProgress("Transcribing audio for sponsor reads", percent = 10, remainingMs = 12 * 60_000L).summary()
+            "Scanning for repeated ad audio \u2022 10% \u2022 ~12m left",
+            EpisodeProgress("Scanning for repeated ad audio", percent = 10, remainingMs = 12 * 60_000L).summary()
         )
+    }
+
+    @Test fun expectedProcessingStagesExcludeAudioTranscription() {
+        val stages = listOf(
+            "Downloading episode",
+            "Decoding audio",
+            "Checking ad markers and chapters",
+            "Scanning for repeated ad audio"
+        )
+        assertTrue(stages.none { it.contains("transcrib", ignoreCase = true) })
+        assertTrue(stages.none { it.contains("sponsor read", ignoreCase = true) })
     }
 
     @Test fun estimatesRemainingTimeAndByteProgress() {

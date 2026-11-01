@@ -1,7 +1,19 @@
 package com.echomute
 
-/** A transcribed word with its position in the episode. */
+import java.io.File
+
 data class TranscriptWord(val startMs: Long, val endMs: Long, val text: String)
+
+fun writeTranscript(file: File, words: List<TranscriptWord>) {
+    file.bufferedWriter().use { out -> for (w in words) out.write("${w.startMs}\t${w.endMs}\t${w.text}\n") }
+}
+
+fun readTranscript(file: File): List<TranscriptWord> = file.useLines { lines ->
+    lines.mapNotNull { line ->
+        val parts = line.split('\t', limit = 3)
+        if (parts.size < 3) null else TranscriptWord(parts[0].toLong(), parts[1].toLong(), parts[2])
+    }.toList()
+}
 
 /** A candidate ad segment and the score its wording earned. */
 data class ScoredSegment(val segment: Segment, val score: Int)

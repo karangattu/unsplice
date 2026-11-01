@@ -38,12 +38,6 @@ android {
     }
     buildFeatures { compose = true }
     lint { disable += listOf("StateFlowValueCalledInComposition", "CoroutineCreationDuringComposition", "FlowOperatorInvokedInComposition", "ProduceStateDoesNotAssignValue") }
-    // ggml loads its CPU backend by scanning the app's native library directory, so the .so files must be extracted.
-    packaging {
-        jniLibs.useLegacyPackaging = true
-        // whisper.cpp also builds a Parakeet model library and SVE/SME CPU variants for the newest cores; neither is used.
-        jniLibs.excludes += listOf("**/libparakeet.so", "**/libggml-cpu-android_armv9*.so")
-    }
     testOptions.unitTests.all {
         it.systemProperty("unsplice.corpus", project.findProperty("unsplice.corpus")?.toString() ?: "")
         it.systemProperty("unsplice.corpus.verbose", project.findProperty("unsplice.corpus.verbose")?.toString() ?: "false")
