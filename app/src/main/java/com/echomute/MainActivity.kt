@@ -235,6 +235,7 @@ private fun LibraryScreen() {
         }
     }
     val podcasts by dao.observePodcasts().collectAsState(initial = emptyList())
+    val activeProgressMap by EpisodeProgressTracker.progress.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf(emptyList<PodcastSearchResult>()) }
     var searching by remember { mutableStateOf(false) }
@@ -732,6 +733,7 @@ private fun LibraryScreen() {
                 LazyColumn(Modifier.weight(1f).testTag("episodes")) {
                     items(if (oldestFirst) episodes.asReversed() else episodes, key = { it.id }) { episode ->
                         val epSegments by dao.observeSegments(episode.id).collectAsState(initial = emptyList())
+                        val activeProgress = activeProgressMap[episode.id]
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             shape = RoundedCornerShape(12.dp),
@@ -745,15 +747,35 @@ private fun LibraryScreen() {
                                         color = if (episode.finished) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.testTag("episode-details-${episode.id}"))
                                 }
-                                if (episode.status in listOf("DOWNLOADING", "QUEUED", "PROCESSING")) {
-                                    Text(if (episode.status == "PROCESSING") "Finding ads…" else episode.status.lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = PocketCastsRed)
+                                val statusText = activeProgress?.summary() ?: when (episode.status) {
+                                    "PROCESSING" -> "Finding ads…"
+                                    "DOWNLOADING" -> "Downloading episode"
+                                    "QUEUED" -> "Queued"
+                                    else -> null
+                                }
+                                if (statusText != null) {
+                                    Text(statusText, style = MaterialTheme.typography.bodySmall, color = PocketCastsRed, modifier = Modifier.testTag("episode-progress-${episode.id}"))
+                                    if (activeProgress?.percent != null) {
+                                        LinearProgressIndicator(
+                                            progress = { (activeProgress.percent / 100f).coerceIn(0f, 1f) },
+                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp).height(4.dp).clip(RoundedCornerShape(50)),
+                                            color = PocketCastsRed,
+                                            trackColor = Color(0xFF484A54)
+                                        )
+                                    } else {
+                                        LinearProgressIndicator(
+                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp).height(4.dp).clip(RoundedCornerShape(50)),
+                                            color = PocketCastsRed,
+                                            trackColor = Color(0xFF484A54)
+                                        )
+                                    }
                                 }
                                 if (episode.status == "READY") {
                                     if (epSegments.isNotEmpty()) {
                                         Text("${epSegments.size} ad segment(s) detected", color = PocketCastsAdGold, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                                         epSegments.forEach { seg ->
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                val label = when (seg.source) { "marker" -> "ad break"; "chapter" -> "chapter"; else -> "repeat" }
+                                                val label = when (seg.source) { "marker" -> "ad break"; "chapter" -> "chapter"; "transcript" -> "sponsor read"; else -> "repeat" }
                                                 val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) ", not auto-skipped" else ""
                                                 Text("${formatTime(seg.startMs)} - ${formatTime(seg.endMs)} ($label$manual)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                 Spacer(Modifier.width(8.dp))
@@ -762,7 +784,7 @@ private fun LibraryScreen() {
                                                 }
                                             }
                                         }
-                                    } else {
+                                    } else if (activeProgress == null) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text("No ads found", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             Spacer(Modifier.width(8.dp))

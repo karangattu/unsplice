@@ -16,9 +16,12 @@ class AudioDecoderTest {
         val pcm = File(dir, "decoder-test.pcm")
         testContext.assets.open("tone.mp3").use { input -> source.outputStream().use { input.copyTo(it) } }
         try {
-            decodeAudio(source, pcm)
+            val progress = mutableListOf<Pair<Long, Long>>()
+            decodeAudio(source, pcm) { done, total -> progress.add(done to total) }
             assertTrue("Expected roughly two seconds of 8 kHz 16-bit PCM", pcm.length() in 30_000..35_000)
             assertTrue("Decoded audio should not be silent", pcm.readBytes().any { it.toInt() != 0 })
+            assertTrue("Decoder should report progress", progress.isNotEmpty())
+            assertEquals(progress.last().second, progress.last().first)
         } finally { source.delete(); pcm.delete() }
     }
 }

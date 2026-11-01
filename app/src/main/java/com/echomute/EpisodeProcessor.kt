@@ -9,7 +9,12 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 
-suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String) = withContext(Dispatchers.IO) {
+suspend fun processEpisode(
+    context: Context,
+    dao: LibraryDao,
+    episodeId: String,
+    onProgress: (EpisodeProgress) -> Unit = {}
+) = withContext(Dispatchers.IO) {
     require(episodeId.matches(Regex("[a-zA-Z0-9_-]+")))
     var episode = requireNotNull(dao.episode(episodeId))
     val directory = File(context.filesDir, "episodes/$episodeId").apply { mkdirs() }
@@ -19,11 +24,15 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
     val pcm16 = File(directory, "audio16k.pcm")
     val chunk = File(directory, "chunk.pcm")
     val fingerprints = File(directory, "fingerprints.bin")
+    val reporter = StepProgressReporter(episodeId, onProgress)
     try {
         if (!audio.isFile) {
+            reporter.beginStage("Downloading episode")
             episode = episode.copy(status = "DOWNLOADING", error = null)
             dao.saveEpisode(episode)
-            downloadAudio(episode.audioUrl, partial)
+            downloadAudio(episode.audioUrl, partial) { done, total ->
+                reporter.report(done, total, includeBytes = true)
+            }
             check(partial.renameTo(audio)) { "Could not save downloaded audio" }
             File(partial.path + ".etag").delete()
         }
@@ -35,12 +44,14 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
         var decoded = false
         try {
             // One decode serves both the 8 kHz fingerprinting passes and the 16 kHz transcript pass.
+            reporter.beginStage("Decoding audio")
             decoded = try {
-                if (decodeAudio(audio, pcm16, WHISPER_SAMPLE_RATE) == WHISPER_SAMPLE_RATE) halveSampleRate(pcm16, pcm)
+                if (decodeAudio(audio, pcm16, WHISPER_SAMPLE_RATE) { done, total -> reporter.report(done, total) } == WHISPER_SAMPLE_RATE) halveSampleRate(pcm16, pcm)
                 else check(pcm16.renameTo(pcm))
                 true
             } catch (_: Exception) { false }
 
+            reporter.beginStage("Checking ad markers and chapters")
             var foundMarkers = false
             if (decoded) try {
                 val (strong, weak) = omnyAdBreaks(episode.audioUrl, pcm).partition { it.match >= 0.4 }
@@ -61,10 +72,13 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
 
             // Publisher markers already cover every inserted break, so skip the slow fingerprint pass.
             if (decoded && !foundMarkers) try {
+                reporter.beginStage("Scanning for repeated ad audio")
+                val pcmBytes = pcm.length()
                 DataOutputStream(fingerprints.outputStream().buffered()).use { out ->
                     pcm.inputStream().buffered().use { input ->
                         val bytes = ByteArray(8000 * 2 * 60)
                         var offset = 0L
+                        var readBytes = 0L
                         while (true) {
                             var size = 0
                             while (size < bytes.size) {
@@ -77,6 +91,8 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
                             val points = NativeFingerprint.generateFingerprints(chunk.absolutePath).map { unpackFingerprint(it).let { fp -> fp.copy(timeMs = fp.timeMs + offset) } }
                             for (fp in selectFingerprints(points)) { out.writeInt(fp.hash); out.writeLong(fp.timeMs) }
                             offset += size / 16L
+                            readBytes += size
+                            reporter.report(readBytes, pcmBytes)
                         }
                     }
                 }
@@ -102,7 +118,7 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
 
         // Transcription is by far the slowest pass, so it runs once the episode is READY; its segments appear when it finishes.
         if (decoded && pcm16.isFile) try {
-            val found = transcriptSegments(context, pcm16, directory)
+            val found = transcriptSegments(context, pcm16, directory, reporter)
             for ((confidence, group) in found.groupBy({ it.second }, { it.first }).toSortedMap(reverseOrder())) {
                 saveNewSegments(dao, episode.id, group, "transcript", confidence)
             }
@@ -116,6 +132,7 @@ suspend fun processEpisode(context: Context, dao: LibraryDao, episodeId: String)
         }
         throw e
     } finally {
+        EpisodeProgressTracker.clear(episodeId)
         pcm.delete()
         pcm16.delete()
         chunk.delete()

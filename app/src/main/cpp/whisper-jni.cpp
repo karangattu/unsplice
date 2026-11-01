@@ -16,6 +16,7 @@ struct Session {
     whisper_context* ctx = nullptr;
     std::string vadModel;
     std::atomic<bool> abort{false};
+    std::atomic<int> progress{0};
 };
 
 void silent_log(ggml_log_level, const char*, void*) {}
@@ -81,6 +82,11 @@ extern "C" JNIEXPORT void JNICALL Java_com_echomute_NativeWhisper_cancel(JNIEnv*
     if (session) session->abort.store(true);
 }
 
+extern "C" JNIEXPORT jint JNICALL Java_com_echomute_NativeWhisper_progress(JNIEnv*, jobject, jlong handle) {
+    auto* session = reinterpret_cast<Session*>(handle);
+    return session ? session->progress.load() : 0;
+}
+
 // Transcribes [count] 16 kHz mono 16-bit samples starting [offset] samples into the PCM file. Returns UTF-8
 // lines of "startMs\tendMs\ttext", one per word, relative to the window; token boundaries that are not valid
 // UTF-8 are decoded leniently on the Kotlin side instead of aborting the JVM.
@@ -88,6 +94,7 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_echomute_NativeWhisper_transcri
     auto* session = reinterpret_cast<Session*>(handle);
     if (!session) { throw_io(env, "Model not loaded"); return nullptr; }
     if (session->abort.load()) { throw_io(env, "Transcription cancelled"); return nullptr; }
+    session->progress.store(0);
 
     std::vector<float> pcm(count);
     {
@@ -117,6 +124,10 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_echomute_NativeWhisper_transcri
     params.temperature_inc = 0.0f; // no re-decoding of hard sections at higher temperatures
     params.abort_callback = [](void* data) { return static_cast<Session*>(data)->abort.load(); };
     params.abort_callback_user_data = session;
+    params.progress_callback = [](whisper_context*, whisper_state*, int progress, void* data) {
+        static_cast<Session*>(data)->progress.store(progress);
+    };
+    params.progress_callback_user_data = session;
     if (!session->vadModel.empty()) {
         params.vad = true;
         params.vad_model_path = session->vadModel.c_str();

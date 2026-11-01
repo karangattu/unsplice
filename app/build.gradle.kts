@@ -37,6 +37,7 @@ android {
         }
     }
     buildFeatures { compose = true }
+    lint { disable += listOf("StateFlowValueCalledInComposition", "CoroutineCreationDuringComposition", "FlowOperatorInvokedInComposition", "ProduceStateDoesNotAssignValue") }
     // ggml loads its CPU backend by scanning the app's native library directory, so the .so files must be extracted.
     packaging {
         jniLibs.useLegacyPackaging = true

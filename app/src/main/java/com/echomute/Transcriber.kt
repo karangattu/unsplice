@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -22,6 +23,7 @@ object NativeWhisper {
     external fun release(handle: Long)
     /** Stops the running or next [transcribe] call on this session. */
     external fun cancel(handle: Long)
+    external fun progress(handle: Long): Int
     /** Description of the CPU backend ggml picked, such as `android_armv8.2_1`; call after [load]. */
     external fun backendName(): String
     /** Transcribes [count] 16 kHz samples from [offset] in a 16-bit PCM file; returns UTF-8 "startMs\tendMs\ttext" lines. */
@@ -57,14 +59,24 @@ private const val CUT_SEARCH_MS = 10_000
  * 16-bit PCM. The transcript is kept in [directory] as `transcript.tsv`, so "Scan again" reclassifies without
  * transcribing again.
  */
-suspend fun transcriptSegments(context: Context, pcm: File, directory: File): List<Pair<Segment, Float>> {
+suspend fun transcriptSegments(
+    context: Context,
+    pcm: File,
+    directory: File,
+    reporter: StepProgressReporter? = null
+): List<Pair<Segment, Float>> {
     val transcript = File(directory, "transcript.tsv")
     val envelope = loudnessEnvelope(pcm)
     val words = if (transcript.isFile) readTranscript(transcript) else {
-        val model = whisperModel(context)
+        val modelFile = File(context.filesDir, "models/$WHISPER_MODEL_NAME")
+        if (!modelFile.isFile) reporter?.beginStage("Downloading speech model")
+        val model = whisperModel(context) { done, total -> reporter?.report(done, total, includeBytes = true) }
         val vad = if (WHISPER_USE_VAD) try { whisperVadModel(context) } catch (_: IOException) { null } else null
+        reporter?.beginStage("Transcribing audio for sponsor reads")
         val started = System.currentTimeMillis()
-        transcribePcm(model, vad, pcm, envelope, context.applicationInfo.nativeLibraryDir).also {
+        transcribePcm(model, vad, pcm, envelope, context.applicationInfo.nativeLibraryDir) { done, total ->
+            reporter?.report(done, total)
+        }.also {
             writeTranscript(transcript, it)
             Log.i("Transcript", "Transcribed ${pcm.length() / (2 * WHISPER_SAMPLE_RATE)} s of audio in ${(System.currentTimeMillis() - started) / 1000} s on ${NativeWhisper.backendName()}")
         }
@@ -73,16 +85,18 @@ suspend fun transcriptSegments(context: Context, pcm: File, directory: File): Li
 }
 
 /** Returns the local speech model, downloading it once if needed. */
-fun whisperModel(context: Context) = downloadedModel(context, WHISPER_MODEL_NAME, WHISPER_MODEL_URL)
+fun whisperModel(context: Context, onProgress: (Long, Long) -> Unit = { _, _ -> }) =
+    downloadedModel(context, WHISPER_MODEL_NAME, WHISPER_MODEL_URL, onProgress)
 
 /** Returns the local voice activity model, downloading it once if needed. */
-fun whisperVadModel(context: Context) = downloadedModel(context, WHISPER_VAD_MODEL_NAME, WHISPER_VAD_MODEL_URL)
+fun whisperVadModel(context: Context, onProgress: (Long, Long) -> Unit = { _, _ -> }) =
+    downloadedModel(context, WHISPER_VAD_MODEL_NAME, WHISPER_VAD_MODEL_URL, onProgress)
 
-private fun downloadedModel(context: Context, name: String, url: String): File {
+private fun downloadedModel(context: Context, name: String, url: String, onProgress: (Long, Long) -> Unit = { _, _ -> }): File {
     val model = File(context.filesDir, "models/$name")
     if (model.isFile) return model
     val partial = File(model.path + ".part")
-    downloadAudio(url, partial)
+    downloadAudio(url, partial, onProgress)
     check(partial.renameTo(model)) { "Could not save model $name" }
     File(partial.path + ".etag").delete()
     return model
@@ -92,7 +106,14 @@ private fun downloadedModel(context: Context, name: String, url: String): File {
  * Transcribes 16 kHz mono 16-bit PCM in [pcm] in windows cut at quiet points of [envelope]. Cancelling the calling
  * coroutine aborts the model within a few hundred milliseconds.
  */
-suspend fun transcribePcm(model: File, vad: File?, pcm: File, envelope: FloatArray, backendDir: String): List<TranscriptWord> = withContext(Dispatchers.IO) {
+suspend fun transcribePcm(
+    model: File,
+    vad: File?,
+    pcm: File,
+    envelope: FloatArray,
+    backendDir: String,
+    onProgress: (Long, Long) -> Unit = { _, _ -> }
+): List<TranscriptWord> = withContext(Dispatchers.IO) {
     val handle = NativeWhisper.load(model.absolutePath, vad?.absolutePath, backendDir)
     if (handle == 0L) {
         model.delete() // A truncated download; fetch it again next time.
@@ -109,12 +130,22 @@ suspend fun transcribePcm(model: File, vad: File?, pcm: File, envelope: FloatArr
         while (offset < total) {
             ensureActive()
             val end = if (total - offset <= WINDOW_SAMPLES) total else quietestCut(envelope, offset + WINDOW_SAMPLES)
+            val progressPoller = launch {
+                while (true) {
+                    delay(250)
+                    val pct = NativeWhisper.progress(handle).coerceIn(0, 100)
+                    if (pct > 0) onProgress(offset + (end - offset) * pct / 100, total)
+                }
+            }
             val lines = try {
                 NativeWhisper.transcribe(handle, pcm.absolutePath, offset, (end - offset).toInt(), threads, WHISPER_AUDIO_CTX)
             } catch (e: IOException) {
                 ensureActive()
                 throw e
+            } finally {
+                progressPoller.cancelAndJoin()
             }
+            onProgress(end, total)
             val offsetMs = offset * 1000 / WHISPER_SAMPLE_RATE
             for (line in String(lines, Charsets.UTF_8).lineSequence()) {
                 val parts = line.split('\t', limit = 3)

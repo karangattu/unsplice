@@ -13,8 +13,6 @@ import androidx.work.WorkerParameters
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 fun shouldDeferAnalysis(charging: Boolean, audioPlaying: Boolean) = !charging && audioPlaying
@@ -29,36 +27,29 @@ class EpisodeWorker(context: Context, parameters: WorkerParameters) : CoroutineW
             Intent(applicationContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        fun notification(text: String) = ForegroundInfo(
+        fun notification(title: String, progress: EpisodeProgress) = ForegroundInfo(
             id.hashCode(),
             NotificationCompat.Builder(applicationContext, "downloads")
                 .setSmallIcon(android.R.drawable.stat_sys_download)
-                .setContentTitle("Preparing podcast")
-                .setContentText(text)
+                .setContentTitle(title)
+                .setContentText(progress.summary())
                 .setContentIntent(openApp)
-                .setProgress(0, 0, true)
+                .setProgress(100, progress.percent?.coerceIn(0, 100) ?: 0, progress.percent == null)
+                .setOnlyAlertOnce(true)
                 .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
                 .setOngoing(true).build(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         )
-        setForeground(notification("Getting episode ready"))
+        setForeground(notification("Preparing podcast", EpisodeProgress("Getting episode ready")))
         return try {
             val dao = LibraryDatabase.get(applicationContext).library()
+            val title = dao.episode(id)?.title?.takeIf { it.isNotBlank() } ?: "Preparing podcast"
             coroutineScope {
                 val observer = launch {
                     try {
-                        val podcastId = dao.episode(id)?.podcastId ?: return@launch
-                        dao.observeEpisodes(podcastId)
-                            .map { episodes -> episodes.firstOrNull { it.id == id }?.status }
-                            .distinctUntilChanged()
-                            .collect { status ->
-                                val text = when (status) {
-                                    "DOWNLOADING" -> "Downloading episode"
-                                    "PROCESSING" -> "Finding ads"
-                                    else -> null
-                                }
-                                if (text != null) setForeground(notification(text))
-                            }
+                        EpisodeProgressTracker.observe(id).collect { progress ->
+                            if (progress != null) setForeground(notification(title, progress))
+                        }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {

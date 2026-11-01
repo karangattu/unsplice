@@ -12,7 +12,7 @@ import java.nio.ByteOrder
  * Decodes [source] to 16-bit little-endian mono PCM at [targetRate] Hz and returns the rate written: [targetRate],
  * or 8000 when the source is sampled below [targetRate] and cannot be decimated to it.
  */
-fun decodeAudio(source: File, destination: File, targetRate: Int = 8000): Int {
+fun decodeAudio(source: File, destination: File, targetRate: Int = 8000, onProgress: (Long, Long) -> Unit = { _, _ -> }): Int {
     val extractor = MediaExtractor()
     var codec: MediaCodec? = null
     try {
@@ -23,6 +23,7 @@ fun decodeAudio(source: File, destination: File, targetRate: Int = 8000): Int {
         val format = extractor.getTrackFormat(index)
         val sampleRate = if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) format.getInteger(MediaFormat.KEY_SAMPLE_RATE) else 44100
         val channelCount = if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else 2
+        val durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else 0L
         val rate = if (sampleRate >= targetRate) targetRate else 8000
         var resampler = PcmResampler(sampleRate, channelCount, rate)
 
@@ -45,8 +46,11 @@ fun decodeAudio(source: File, destination: File, targetRate: Int = 8000): Int {
                         if (size < 0) {
                             decoder.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputDone = true
+                            if (durationUs > 0) onProgress(durationUs, durationUs)
                         } else {
-                            decoder.queueInputBuffer(inputIndex, 0, size, extractor.sampleTime, 0)
+                            val sampleTime = extractor.sampleTime
+                            decoder.queueInputBuffer(inputIndex, 0, size, sampleTime, 0)
+                            if (durationUs > 0 && sampleTime >= 0) onProgress(sampleTime.coerceAtMost(durationUs), durationUs)
                             extractor.advance()
                         }
                     }

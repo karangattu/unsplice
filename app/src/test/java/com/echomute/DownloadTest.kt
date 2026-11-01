@@ -29,6 +29,21 @@ class DownloadTest {
             finally { file.delete(); File(file.path + ".etag").delete() }
         }
     }
+
+    @Test fun reportsDownloadProgressIncludingResumedBytes() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 3-5/6").setBody("def"))
+            val file = File.createTempFile("unsplice", ".part")
+            val progress = mutableListOf<Pair<Long, Long>>()
+            try {
+                file.writeText("abc")
+                File(file.path + ".etag").writeText("\"v1\"")
+                downloadAudio(server.url("/audio").toString(), file) { done, total -> progress.add(done to total) }
+                assertTrue(progress.isNotEmpty())
+                assertEquals(6L to 6L, progress.last())
+            } finally { file.delete(); File(file.path + ".etag").delete() }
+        }
+    }
 }
 
 class ResumeSafetyTest {

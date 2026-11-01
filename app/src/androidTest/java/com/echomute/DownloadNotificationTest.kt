@@ -63,4 +63,51 @@ class DownloadNotificationTest {
             }
         }
     }
+
+    @Test fun downloadNotificationShowsDeterminatePercentageWhenSizeIsKnown() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        if (Build.VERSION.SDK_INT >= 33) {
+            instrumentation.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val dao = LibraryDatabase.get(context).library()
+        val id = "notification-pct-${System.nanoTime()}"
+        val podcastId = "podcast-$id"
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse()
+                    .setBody(okio.Buffer().write(ByteArray(200_000)))
+                    .throttleBody(100_000, 10, TimeUnit.SECONDS)
+            )
+            runBlocking {
+                dao.savePodcast(Podcast(podcastId, "Test show", server.url("/feed").toString()))
+                dao.saveEpisode(Episode(id, podcastId, "Test episode", server.url("/audio.mp3").toString()))
+            }
+            val request = OneTimeWorkRequestBuilder<EpisodeWorker>().setInputData(workDataOf("episodeId" to id)).build()
+            val work = WorkManager.getInstance(context)
+            val manager = context.getSystemService(NotificationManager::class.java)
+            try {
+                work.enqueue(request).result.get(15, TimeUnit.SECONDS)
+                var notification: Notification? = null
+                for (attempt in 0 until 100) {
+                    val candidate = manager.activeNotifications.firstOrNull { it.id == id.hashCode() }?.notification
+                    if (candidate != null && !candidate.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE)) {
+                        notification = candidate
+                        break
+                    }
+                    Thread.sleep(100)
+                }
+                assertNotNull("Determinate download notification should be posted", notification)
+                assertFalse(notification!!.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE))
+                assertEquals(100, notification.extras.getInt(Notification.EXTRA_PROGRESS_MAX))
+                assertTrue(notification.extras.getInt(Notification.EXTRA_PROGRESS) in 1..99)
+                val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+                assertTrue(text, text.contains("Downloading episode") && text.contains("%"))
+            } finally {
+                work.cancelWorkById(request.id)
+                runBlocking { dao.deletePodcast(podcastId) }
+                context.filesDir.resolve("episodes/$id").deleteRecursively()
+            }
+        }
+    }
 }

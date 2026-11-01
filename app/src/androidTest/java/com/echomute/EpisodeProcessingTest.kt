@@ -24,11 +24,16 @@ class EpisodeProcessingTest {
                 val dao = db.library()
                 dao.savePodcast(Podcast("test", "Test", "https://example.com", false))
                 dao.saveEpisode(Episode("test-episode", "test", "Tone", server.url("/tone.mp3").toString()))
-                processEpisode(context, dao, "test-episode")
+                val updates = mutableListOf<EpisodeProgress>()
+                processEpisode(context, dao, "test-episode") { updates.add(it) }
                 val episode = requireNotNull(dao.episode("test-episode"))
                 assertEquals("READY", episode.status)
                 assertTrue(java.io.File(requireNotNull(episode.localPath)).isFile)
                 assertTrue(java.io.File(requireNotNull(episode.fingerprintPath)).isFile)
+                val stages = updates.map { it.stage }.distinct()
+                assertTrue(stages.toString(), stages.containsAll(listOf("Downloading episode", "Decoding audio", "Checking ad markers and chapters", "Scanning for repeated ad audio")))
+                assertTrue(updates.any { it.stage == "Downloading episode" && it.percent == 100 })
+                assertTrue(updates.any { it.stage == "Scanning for repeated ad audio" && it.percent == 100 })
             } finally { db.close(); context.filesDir.resolve("episodes/test-episode").deleteRecursively() }
         }
     }
