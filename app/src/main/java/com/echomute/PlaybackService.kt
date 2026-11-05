@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.work.WorkManager
 
 private const val RESUME_THRESHOLD_MS = 5_000L
 
@@ -196,11 +198,28 @@ class PlaybackService : MediaLibraryService() {
 
     private suspend fun finishEpisode(id: String) {
         dao.markFinished(id)
-        if (effectsPrefs.getBoolean("autoDeletePlayed", false)) {
-            val ep = dao.episode(id) ?: return
-            if (ep.localPath != null) {
-                File(filesDir, "episodes/$id").deleteRecursively()
-                dao.saveEpisode(ep.copy(localPath = null, fingerprintPath = null, status = "NOT_DOWNLOADED"))
+        if (!autoDeletePlayedEnabled(effectsPrefs)) return
+        val ep = dao.episode(id) ?: return
+        WorkManager.getInstance(this).cancelUniqueWork("episode-$id")
+        EpisodeProgressTracker.clear(id)
+        val cleared = withContext(Dispatchers.IO) { deleteEpisodeDownload(filesDir, ep) }
+        dao.saveEpisode(cleared)
+        dao.deleteSegments(id)
+        detachDeletedEpisode(id, ep.audioUrl)
+    }
+
+    private fun detachDeletedEpisode(id: String, remoteUrl: String) {
+        for (index in player.mediaItemCount - 1 downTo 0) {
+            val item = player.getMediaItemAt(index)
+            if (item.mediaId != id) continue
+            if (index == player.currentMediaItemIndex) {
+                if (item.localConfiguration?.uri?.scheme != "file") continue
+                swapping = true
+                try {
+                    player.replaceMediaItem(index, item.toQueueItem().copy(uri = remoteUrl).toMediaItem())
+                } finally { swapping = false }
+            } else {
+                player.removeMediaItem(index)
             }
         }
     }

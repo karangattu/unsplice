@@ -119,6 +119,16 @@ object ListeningStatsStore {
     }
 }
 
+const val AUTO_DELETE_PLAYED_KEY = "autoDeletePlayed"
+
+fun autoDeletePlayedEnabled(prefs: SharedPreferences): Boolean = prefs.getBoolean(AUTO_DELETE_PLAYED_KEY, true)
+
+fun deleteEpisodeDownload(filesDir: File, episode: Episode): Episode {
+    File(filesDir, "episodes/${episode.id}").deleteRecursively()
+    episode.localPath?.let(::File)?.takeIf { it.isFile }?.delete()
+    return episode.copy(localPath = null, fingerprintPath = null, status = "NOT_DOWNLOADED", error = null)
+}
+
 fun stepSpeed(current: Float, delta: Float): Float {
     val stepped = ((current + delta) * 10f).roundToInt() / 10f
     return stepped.coerceIn(0.5f, 3.0f)

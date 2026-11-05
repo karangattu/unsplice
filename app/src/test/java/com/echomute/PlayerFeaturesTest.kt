@@ -6,6 +6,50 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerFeaturesTest {
+    @Test fun autoDeletePlayedIsOnByDefaultAndRespectsOptOut() {
+        val prefs = FakePrefs()
+        assertTrue(autoDeletePlayedEnabled(prefs))
+        prefs.edit().putBoolean(AUTO_DELETE_PLAYED_KEY, false).apply()
+        assertEquals(false, autoDeletePlayedEnabled(prefs))
+        prefs.edit().putBoolean(AUTO_DELETE_PLAYED_KEY, true).apply()
+        assertTrue(autoDeletePlayedEnabled(prefs))
+    }
+
+    @Test fun deletingEpisodeDownloadRemovesFilesAndResetsStatus() {
+        val filesDir = kotlin.io.path.createTempDirectory("unsplice-files").toFile()
+        try {
+            val dir = File(filesDir, "episodes/ep1").apply { mkdirs() }
+            val audio = File(dir, "audio").apply { writeText("mp3") }
+            File(dir, "fingerprints.bin").writeText("fp")
+            val other = File(filesDir, "episodes/ep2").apply { mkdirs() }
+            File(other, "audio").writeText("keep")
+            val episode = Episode(id = "ep1", podcastId = "p", title = "One", audioUrl = "https://example.com/1.mp3",
+                localPath = audio.absolutePath, fingerprintPath = File(dir, "fingerprints.bin").absolutePath, status = "READY", finished = true, error = "old")
+
+            val cleared = deleteEpisodeDownload(filesDir, episode)
+
+            assertTrue(!dir.exists())
+            assertTrue(File(other, "audio").isFile)
+            assertEquals(null, cleared.localPath)
+            assertEquals(null, cleared.fingerprintPath)
+            assertEquals(null, cleared.error)
+            assertEquals("NOT_DOWNLOADED", cleared.status)
+            assertTrue(cleared.finished)
+            assertEquals(episode.audioUrl, cleared.audioUrl)
+        } finally {
+            filesDir.deleteRecursively()
+        }
+    }
+
+    @Test fun deletingEpisodeWithoutDownloadIsSafe() {
+        val filesDir = kotlin.io.path.createTempDirectory("unsplice-files").toFile()
+        try {
+            val episode = Episode(id = "ep3", podcastId = "p", title = "Three", audioUrl = "https://example.com/3.mp3")
+            assertEquals("NOT_DOWNLOADED", deleteEpisodeDownload(filesDir, episode).status)
+        } finally {
+            filesDir.deleteRecursively()
+        }
+    }
     @Test fun extractsClickableTimestampsFromShowNotes() {
         val notes = "00:30 Cold open\n14:20 Deep dive\n1:02:15 Listener Q&A"
         val found = extractTimestamps(notes)

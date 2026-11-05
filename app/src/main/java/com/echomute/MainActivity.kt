@@ -31,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.*
@@ -49,6 +50,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -189,6 +191,27 @@ internal fun PlaybackProgress(
 }
 
 @Composable
+private fun SettingValueRow(label: String, value: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(end = 8.dp))
+        Text(value, color = PocketCastsRed, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+    }
+}
+
+@Composable
+private fun SeekButton(label: String, mirrored: Boolean, contentDescription: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(52.dp).semantics { this.contentDescription = contentDescription }) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Replay, contentDescription = null, modifier = Modifier.size(36.dp).graphicsLayer { scaleX = if (mirrored) -1f else 1f })
+            Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 3.dp))
+        }
+    }
+}
+
+@Composable
 internal fun MiniPlaybackProgress(position: Long, duration: Long, segments: List<AdSegment>) {
     if (duration <= 0) return
     val fraction = (position.toFloat() / duration).coerceIn(0f, 1f)
@@ -321,7 +344,7 @@ private fun TranscriptDialog(
                                     modifier = Modifier.weight(1f)
                                 )
                                 TextButton(onClick = { onMarkAd(line) }) {
-                                    Text("Flag ad", style = MaterialTheme.typography.labelSmall, color = PocketCastsAdGold)
+                                    Text("Flag ad", style = MaterialTheme.typography.labelSmall, color = PocketCastsAdGold, maxLines = 1, softWrap = false)
                                 }
                             }
                         }
@@ -330,7 +353,7 @@ private fun TranscriptDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            TextButton(onClick = onDismiss) { Text("Close", maxLines = 1, softWrap = false) }
         }
     )
 }
@@ -398,7 +421,7 @@ private fun LibraryScreen() {
     val statsPrefs = remember { context.getSharedPreferences("listening_stats", android.content.Context.MODE_PRIVATE) }
     var trimSilence by remember { mutableStateOf(effectsPrefs.getBoolean("trimSilence", false)) }
     var voiceBoost by remember { mutableStateOf(effectsPrefs.getBoolean("voiceBoost", false)) }
-    var autoDeletePlayed by remember { mutableStateOf(effectsPrefs.getBoolean("autoDeletePlayed", false)) }
+    var autoDeletePlayed by remember { mutableStateOf(autoDeletePlayedEnabled(effectsPrefs)) }
     var sleepLabel by remember { mutableStateOf("Off") }
     var lastSkip by remember { mutableStateOf<String?>(null) }
     var speed by remember { mutableFloatStateOf(1f) }
@@ -606,7 +629,7 @@ private fun LibraryScreen() {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showStatsDialog = false }) { Text("Done") }
+                TextButton(onClick = { showStatsDialog = false }) { Text("Done", maxLines = 1, softWrap = false) }
             }
         )
     }
@@ -617,11 +640,11 @@ private fun LibraryScreen() {
         }
         AlertDialog(
             onDismissRequest = { showSettingsDialog = false },
-            title = { Text("Audio Effects & Storage") },
+            title = { Text("Settings") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Trim silence globally", style = MaterialTheme.typography.bodyMedium)
+                        Text("Trim silence globally", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(end = 8.dp))
                         Switch(
                             checked = trimSilence,
                             onCheckedChange = {
@@ -631,7 +654,7 @@ private fun LibraryScreen() {
                         )
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Voice boost (volume leveling)", style = MaterialTheme.typography.bodyMedium)
+                        Text("Voice boost (volume leveling)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(end = 8.dp))
                         Switch(
                             checked = voiceBoost,
                             onCheckedChange = {
@@ -641,12 +664,12 @@ private fun LibraryScreen() {
                         )
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Auto-delete played downloads", style = MaterialTheme.typography.bodyMedium)
+                        Text("Delete episodes after playing", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(end = 8.dp))
                         Switch(
                             checked = autoDeletePlayed,
                             onCheckedChange = {
                                 autoDeletePlayed = it
-                                effectsPrefs.edit().putBoolean("autoDeletePlayed", it).apply()
+                                effectsPrefs.edit().putBoolean(AUTO_DELETE_PLAYED_KEY, it).apply()
                             }
                         )
                     }
@@ -672,14 +695,14 @@ private fun LibraryScreen() {
                                         }
                                         showSettingsDialog = false
                                     }
-                                }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                                }) { Text("Clear", color = MaterialTheme.colorScheme.error, maxLines = 1, softWrap = false) }
                             }
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showSettingsDialog = false }) { Text("Done") }
+                TextButton(onClick = { showSettingsDialog = false }) { Text("Done", maxLines = 1, softWrap = false) }
             }
         )
     }
@@ -704,10 +727,10 @@ private fun LibraryScreen() {
                             }
                         }
                     }
-                ) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                ) { Text("Remove", color = MaterialTheme.colorScheme.error, maxLines = 1, softWrap = false) }
             },
             dismissButton = {
-                TextButton(onClick = { podcastPendingRemoval = null }) { Text("Cancel") }
+                TextButton(onClick = { podcastPendingRemoval = null }) { Text("Cancel", maxLines = 1, softWrap = false) }
             }
         )
     }
@@ -757,46 +780,13 @@ private fun LibraryScreen() {
                             }
                             Row(
                                 Modifier.fillMaxWidth().padding(top = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
-                                        modifier = Modifier.size(28.dp).testTag("speed-down"),
-                                        onClick = {
-                                            speed = stepSpeed(speed, -0.1f)
-                                            controller?.setPlaybackSpeed(speed)
-                                        }
-                                    ) { Icon(Icons.Filled.Remove, contentDescription = "Decrease speed", modifier = Modifier.size(16.dp)) }
-                                    TextButton(onClick = {
-                                        speed = when (speed) {
-                                            1f -> 1.25f
-                                            1.25f -> 1.5f
-                                            1.5f -> 2f
-                                            else -> 1f
-                                        }
-                                        controller?.setPlaybackSpeed(speed)
-                                    }) { Text("${speed}x", fontWeight = FontWeight.Bold, color = PocketCastsRed) }
-                                    IconButton(
-                                        modifier = Modifier.size(28.dp).testTag("speed-up"),
-                                        onClick = {
-                                            speed = stepSpeed(speed, 0.1f)
-                                            controller?.setPlaybackSpeed(speed)
-                                        }
-                                    ) { Icon(Icons.Filled.Add, contentDescription = "Increase speed", modifier = Modifier.size(16.dp)) }
+                                SeekButton(label = "15", mirrored = false, contentDescription = "Rewind 15 seconds") {
+                                    controller?.seekTo((position - 15_000).coerceAtLeast(0))
                                 }
-
-                                OutlinedButton(
-                                    onClick = { controller?.seekTo((position - 15_000).coerceAtLeast(0)) },
-                                    shape = RoundedCornerShape(20.dp),
-                                    contentPadding = PaddingValues(horizontal = 10.dp)
-                                ) {
-                                    Icon(Icons.Filled.Replay10, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(2.dp))
-                                    Text("15s")
-                                }
-
-                                Button(
+                                FilledIconButton(
                                     onClick = {
                                         controller?.let { player ->
                                             if (player.isPlaying) player.pause() else {
@@ -805,24 +795,13 @@ private fun LibraryScreen() {
                                             }
                                         }
                                     },
-                                    shape = RoundedCornerShape(24.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed),
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                                    modifier = Modifier.height(44.dp)
+                                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = PocketCastsRed, contentColor = Color.White),
+                                    modifier = Modifier.size(60.dp)
                                 ) {
-                                    Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = null)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(if (playing) "Pause" else "Play", fontWeight = FontWeight.Bold)
+                                    Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = if (playing) "Pause" else "Play", modifier = Modifier.size(32.dp))
                                 }
-
-                                OutlinedButton(
-                                    onClick = { controller?.seekTo((position + 30_000).coerceAtMost(duration)) },
-                                    shape = RoundedCornerShape(20.dp),
-                                    contentPadding = PaddingValues(horizontal = 10.dp)
-                                ) {
-                                    Text("30s")
-                                    Spacer(Modifier.width(2.dp))
-                                    Icon(Icons.Filled.Forward30, contentDescription = null, modifier = Modifier.size(18.dp))
+                                SeekButton(label = "30", mirrored = true, contentDescription = "Forward 30 seconds") {
+                                    controller?.seekTo((position + 30_000).coerceAtMost(duration))
                                 }
                             }
                             Row(
@@ -830,13 +809,48 @@ private fun LibraryScreen() {
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            modifier = Modifier.size(32.dp).testTag("speed-down"),
+                                            onClick = {
+                                                speed = stepSpeed(speed, -0.1f)
+                                                controller?.setPlaybackSpeed(speed)
+                                            }
+                                        ) { Icon(Icons.Filled.Remove, contentDescription = "Decrease speed", modifier = Modifier.size(16.dp)) }
+                                        Text(
+                                            "${speed}x",
+                                            fontWeight = FontWeight.Bold,
+                                            color = PocketCastsRed,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            modifier = Modifier.clickable {
+                                                speed = when (speed) {
+                                                    1f -> 1.25f
+                                                    1.25f -> 1.5f
+                                                    1.5f -> 2f
+                                                    else -> 1f
+                                                }
+                                                controller?.setPlaybackSpeed(speed)
+                                            }.padding(horizontal = 4.dp)
+                                        )
+                                        IconButton(
+                                            modifier = Modifier.size(32.dp).testTag("speed-up"),
+                                            onClick = {
+                                                speed = stepSpeed(speed, 0.1f)
+                                                controller?.setPlaybackSpeed(speed)
+                                            }
+                                        ) { Icon(Icons.Filled.Add, contentDescription = "Increase speed", modifier = Modifier.size(16.dp)) }
+                                    }
+                                }
                                 FilterChip(
                                     selected = trimSilence,
                                     onClick = {
                                         trimSilence = !trimSilence
                                         effectsPrefs.edit().putBoolean("trimSilence", trimSilence).apply()
                                     },
-                                    label = { Text("Trim silence", style = MaterialTheme.typography.labelSmall) }
+                                    label = { Text("Trim silence", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) }
                                 )
                                 FilterChip(
                                     selected = voiceBoost,
@@ -844,7 +858,7 @@ private fun LibraryScreen() {
                                         voiceBoost = !voiceBoost
                                         effectsPrefs.edit().putBoolean("voiceBoost", voiceBoost).apply()
                                     },
-                                    label = { Text("Voice boost", style = MaterialTheme.typography.labelSmall) }
+                                    label = { Text("Voice boost", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) }
                                 )
                                 FilterChip(
                                     selected = sleepLabel != "Off",
@@ -876,13 +890,13 @@ private fun LibraryScreen() {
                                             }
                                         }
                                     },
-                                    label = { Text("Sleep: $sleepLabel", style = MaterialTheme.typography.labelSmall) }
+                                    label = { Text("Sleep: $sleepLabel", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) }
                                 )
                                 if (chapters.isNotEmpty()) {
                                     FilterChip(
                                         selected = showPlayerChapters,
                                         onClick = { showPlayerChapters = !showPlayerChapters },
-                                        label = { Text("Chapters (${chapters.size})", style = MaterialTheme.typography.labelSmall) }
+                                        label = { Text("Chapters (${chapters.size})", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) }
                                     )
                                 }
                                 currentId?.let { playingEpId ->
@@ -922,7 +936,7 @@ private fun LibraryScreen() {
                                                         }
                                                     }
                                                 }) {
-                                                    Text(if (skippedSeg != null) "Unskip" else "Skip", style = MaterialTheme.typography.labelSmall, color = PocketCastsAdGold)
+                                                    Text(if (skippedSeg != null) "Unskip" else "Skip", style = MaterialTheme.typography.labelSmall, color = PocketCastsAdGold, maxLines = 1, softWrap = false)
                                                 }
                                             }
                                         }
@@ -934,7 +948,7 @@ private fun LibraryScreen() {
                         if (currentAd != null || lastSkip == currentId) {
                             Row(
                                 Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 if (currentAd != null) {
@@ -942,7 +956,7 @@ private fun LibraryScreen() {
                                         ListeningStatsStore.recordAdSkipped(statsPrefs, (currentAd.endMs - position).coerceAtLeast(0L))
                                         controller?.seekTo(currentAd.endMs)
                                     }) {
-                                        Text("Skip ad", color = PocketCastsAdGold, fontWeight = FontWeight.Bold)
+                                        Text("Skip ad", color = PocketCastsAdGold, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                                     }
                                 }
                                 if (lastSkip == currentId) {
@@ -957,7 +971,7 @@ private fun LibraryScreen() {
                                                 lastSkip = null
                                             }
                                         }
-                                    ) { Text("Restore last skipped section", color = PocketCastsRed) }
+                                    ) { Text("Undo skip", color = PocketCastsRed, maxLines = 1, softWrap = false) }
                                 }
                             }
                         }
@@ -1025,7 +1039,7 @@ private fun LibraryScreen() {
                         FilterChip(
                             selected = smartFilter == name,
                             onClick = { smartFilter = name },
-                            label = { Text(name, style = MaterialTheme.typography.labelSmall) },
+                            label = { Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
                             modifier = Modifier.testTag("smart-filter-$name")
                         )
                     }
@@ -1105,7 +1119,7 @@ private fun LibraryScreen() {
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed),
                     modifier = Modifier.padding(top = 4.dp)
-                ) { Text(if (searching) "Searching..." else "Search") }
+                ) { Text(if (searching) "Searching..." else "Search", maxLines = 1, softWrap = false) }
 
                 if (searchResults.isNotEmpty()) {
                     Text("Search Results", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
@@ -1132,14 +1146,14 @@ private fun LibraryScreen() {
                                                 tab = "Library"
                                             }
                                         }
-                                    ) { Text("Subscribed") }
+                                    ) { Text("Subscribed", maxLines = 1, softWrap = false) }
                                 } else {
                                     Button(
                                         enabled = !loading,
                                         onClick = { scope.launch { subscribeUrl(item.feedUrl) } },
                                         colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed)
                                     ) {
-                                        Text("Subscribe")
+                                        Text("Subscribe", maxLines = 1, softWrap = false)
                                     }
                                 }
                             }
@@ -1167,7 +1181,7 @@ private fun LibraryScreen() {
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed),
                     modifier = Modifier.padding(top = 4.dp)
-                ) { Text(if (loading) "Loading..." else "Subscribe") }
+                ) { Text(if (loading) "Loading..." else "Subscribe", maxLines = 1, softWrap = false) }
 
             } else if (selected == null) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1196,7 +1210,7 @@ private fun LibraryScreen() {
                                 Text("Unsplice v${release.version} is available", fontWeight = FontWeight.Bold)
                                 Text("Open the download to update. Your podcasts and progress stay.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl))) }) { Text("Download") }
+                            TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl))) }) { Text("Download", maxLines = 1, softWrap = false) }
                         }
                     }
                 }
@@ -1254,19 +1268,21 @@ private fun LibraryScreen() {
                                     PodcastArtwork(podcast.title, podcast.artworkUrl)
                                     Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f)) {
-                                        Text(podcast.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                        Text(podcast.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                         val statusLabel = buildString {
                                             append(if (podcast.autoSkip) "Auto-skip active" else "Auto-skip off")
                                             if (unplayed > 0) append(" • $unplayed unplayed")
                                         }
                                         Text(
                                             statusLabel,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                             style = MaterialTheme.typography.bodySmall,
                                             color = if (podcast.autoSkip) PocketCastsAdGold else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                     TextButton(onClick = { podcastPendingRemoval = podcast }) {
-                                        Text("Remove", color = MaterialTheme.colorScheme.error)
+                                        Text("Remove", color = MaterialTheme.colorScheme.error, maxLines = 1, softWrap = false)
                                     }
                                 }
                             }
@@ -1278,7 +1294,7 @@ private fun LibraryScreen() {
                     TextButton(onClick = { selectedId = null }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp), tint = PocketCastsRed)
                         Spacer(Modifier.width(4.dp))
-                        Text("All podcasts", color = PocketCastsRed)
+                        Text("All podcasts", color = PocketCastsRed, maxLines = 1, softWrap = false)
                     }
                 }
                 Card(
@@ -1304,7 +1320,7 @@ private fun LibraryScreen() {
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
+                            Column(Modifier.weight(1f).padding(end = 8.dp)) {
                                 Text("Automatically skip detected ads", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                                 Text("Detected ad breaks are skipped automatically during playback.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -1319,25 +1335,20 @@ private fun LibraryScreen() {
                         }
                         if (podcastSettingsOpen) {
                             HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline)
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text("Skip intro", style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = {
-                                    val next = when (selected.skipIntroSec) { 0 -> 15; 15 -> 30; 30 -> 45; 45 -> 60; else -> 0 }
-                                    scope.launch { dao.savePodcast(selected.copy(skipIntroSec = next)) }
-                                }) { Text("${selected.skipIntroSec}s", color = PocketCastsRed, fontWeight = FontWeight.Bold) }
-                                Text("Skip outro", style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = {
-                                    val next = when (selected.skipOutroSec) { 0 -> 15; 15 -> 30; 30 -> 45; 45 -> 60; else -> 0 }
-                                    scope.launch { dao.savePodcast(selected.copy(skipOutroSec = next)) }
-                                }) { Text("${selected.skipOutroSec}s", color = PocketCastsRed, fontWeight = FontWeight.Bold) }
-                                Text("Speed", style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = {
-                                    val next = when (selected.customSpeed) { null -> 1.2f; 1.2f -> 1.5f; 1.5f -> 2.0f; else -> null }
-                                    scope.launch { dao.savePodcast(selected.copy(customSpeed = next)) }
-                                }) { Text(selected.customSpeed?.let { "${it}x" } ?: "Default", color = PocketCastsRed, fontWeight = FontWeight.Bold) }
+                            SettingValueRow("Skip intro", "${selected.skipIntroSec}s") {
+                                val next = when (selected.skipIntroSec) { 0 -> 15; 15 -> 30; 30 -> 45; 45 -> 60; else -> 0 }
+                                scope.launch { dao.savePodcast(selected.copy(skipIntroSec = next)) }
+                            }
+                            SettingValueRow("Skip outro", "${selected.skipOutroSec}s") {
+                                val next = when (selected.skipOutroSec) { 0 -> 15; 15 -> 30; 30 -> 45; 45 -> 60; else -> 0 }
+                                scope.launch { dao.savePodcast(selected.copy(skipOutroSec = next)) }
+                            }
+                            SettingValueRow("Playback speed", selected.customSpeed?.let { "${it}x" } ?: "Default") {
+                                val next = when (selected.customSpeed) { null -> 1.2f; 1.2f -> 1.5f; 1.5f -> 2.0f; else -> null }
+                                scope.launch { dao.savePodcast(selected.copy(customSpeed = next)) }
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text("Auto-download new episodes", style = MaterialTheme.typography.bodySmall)
+                                Text("Auto-download new episodes", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(end = 8.dp))
                                 Switch(
                                     checked = selected.autoDownload,
                                     onCheckedChange = { enabled -> scope.launch { dao.savePodcast(selected.copy(autoDownload = enabled)) } }
@@ -1347,25 +1358,24 @@ private fun LibraryScreen() {
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    listOf("All", "Unplayed", "Downloaded").forEach { filterOption ->
-                        FilterChip(
-                            selected = episodeFilter == filterOption,
-                            onClick = { episodeFilter = filterOption },
-                            label = { Text(filterOption, style = MaterialTheme.typography.labelSmall) },
-                            modifier = Modifier.padding(end = 6.dp).testTag("filter-$filterOption")
-                        )
+                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("All", "Unplayed", "Downloaded").forEach { filterOption ->
+                            FilterChip(
+                                selected = episodeFilter == filterOption,
+                                onClick = { episodeFilter = filterOption },
+                                label = { Text(filterOption, style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
+                                modifier = Modifier.testTag("filter-$filterOption")
+                            )
+                        }
                     }
-                    Spacer(Modifier.weight(1f))
                     IconButton(onClick = {
                         episodeSearchOpen = !episodeSearchOpen
                         if (!episodeSearchOpen) episodeQuery = ""
                     }) {
                         Icon(if (episodeSearchOpen) Icons.Filled.Close else Icons.Filled.Search, contentDescription = "Search episodes")
                     }
-                    TextButton(onClick = { oldestFirst = !oldestFirst }, modifier = Modifier.testTag("sort-episodes")) {
-                        Icon(Icons.Filled.SwapVert, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (oldestFirst) "Oldest first" else "Newest first", style = MaterialTheme.typography.bodySmall)
+                    IconButton(onClick = { oldestFirst = !oldestFirst }, modifier = Modifier.testTag("sort-episodes")) {
+                        Icon(Icons.Filled.SwapVert, contentDescription = if (oldestFirst) "Sorted oldest first" else "Sorted newest first", tint = if (oldestFirst) PocketCastsRed else LocalContentColor.current)
                     }
                 }
                 if (episodeSearchOpen) {
@@ -1409,7 +1419,14 @@ private fun LibraryScreen() {
                                                     }
                                                 }
                                             } else if (dragAccumulated < -160f) {
-                                                scope.launch { dao.setFinished(episode.id, !episode.finished) }
+                                                scope.launch {
+                                                    val nextFinished = !episode.finished
+                                                    dao.setFinished(episode.id, nextFinished)
+                                                    if (nextFinished && autoDeletePlayed && episode.localPath != null) {
+                                                        dao.saveEpisode(withContext(Dispatchers.IO) { deleteEpisodeDownload(context.filesDir, episode) })
+                                                        dao.deleteSegments(episode.id)
+                                                    }
+                                                }
                                             }
                                             dragAccumulated = 0f
                                         },
@@ -1472,7 +1489,7 @@ private fun LibraryScreen() {
                                                                 player.play()
                                                             }
                                                         },
-                                                        label = { Text(ts.label, style = MaterialTheme.typography.labelSmall) }
+                                                        label = { Text(ts.label, style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) }
                                                     )
                                                 }
                                             }
@@ -1530,23 +1547,25 @@ private fun LibraryScreen() {
                                         }
                                         if (segmentsExpanded) {
                                             epSegments.forEach { seg ->
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    val label = when (seg.source) { "marker" -> "ad break"; "chapter" -> "chapter"; "transcript" -> "sponsor read"; else -> "repeat" }
-                                                    val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) ", not auto-skipped" else ""
-                                                    Text("${formatTime(seg.startMs)} - ${formatTime(seg.endMs)} ($label$manual)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                    Spacer(Modifier.width(8.dp))
+                                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                                    val label = when (seg.source) { "marker" -> "Ad break"; "chapter" -> "Chapter"; "transcript" -> "Sponsor read"; else -> "Repeat" }
+                                                    val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) " • manual skip" else ""
+                                                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                                        Text("${formatTime(seg.startMs)} – ${formatTime(seg.endMs)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                                                        Text("$label$manual", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    }
                                                     TextButton(onClick = { scope.launch { dao.deleteSegment(seg.id) } }) {
-                                                        Text("Keep audio", style = MaterialTheme.typography.bodySmall)
+                                                        Text("Keep audio", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                                                     }
                                                 }
                                             }
                                         }
                                     } else if (activeProgress == null) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("No ads found", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("No ads found", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
                                             Spacer(Modifier.width(8.dp))
                                             TextButton(onClick = { startDownload(episode) }) {
-                                                Text("Scan again", style = MaterialTheme.typography.bodySmall)
+                                                Text("Scan again", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                                             }
                                         }
                                     }
@@ -1554,11 +1573,11 @@ private fun LibraryScreen() {
                                         TextButton(
                                             onClick = { openTranscriptFor(episode) },
                                             contentPadding = PaddingValues(0.dp)
-                                        ) { Text("View transcript", style = MaterialTheme.typography.labelSmall, color = PocketCastsRed) }
+                                        ) { Text("View transcript", style = MaterialTheme.typography.labelSmall, color = PocketCastsRed, maxLines = 1, softWrap = false) }
                                     }
                                 }
                                 episode.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = {
                                             controller?.let { player ->
@@ -1571,54 +1590,57 @@ private fun LibraryScreen() {
                                             } ?: run { message = "Player is starting. Try again." }
                                         },
                                         shape = RoundedCornerShape(20.dp),
+                                        contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = PocketCastsRed)
                                     ) {
                                         Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text("Play")
+                                        Text("Play", maxLines = 1, softWrap = false)
                                     }
-                                    TextButton(modifier = Modifier.testTag("add-${episode.title}"), onClick = {
+                                    val isWorking = activeProgress != null || episode.status in listOf("DOWNLOADING", "QUEUED", "PROCESSING")
+                                    val downloaded = episode.localPath != null && File(episode.localPath).isFile
+                                    if (isWorking) {
+                                        OutlinedButton(
+                                            modifier = Modifier.testTag("cancel-${episode.id}"),
+                                            shape = RoundedCornerShape(20.dp),
+                                            contentPadding = PaddingValues(horizontal = 14.dp),
+                                            onClick = { scope.launch { cancelEpisode(context, dao, episode) } }
+                                        ) { Text("Cancel", maxLines = 1, softWrap = false, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    } else if (episode.status != "READY") {
+                                        FilledTonalButton(
+                                            onClick = { startDownload(episode) },
+                                            shape = RoundedCornerShape(20.dp),
+                                            contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
+                                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = PocketCastsSurfaceVariant)
+                                        ) {
+                                            Icon(if (episode.status == "FAILED") Icons.Filled.Refresh else Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(if (episode.status == "FAILED") "Retry" else "Download", maxLines = 1, softWrap = false)
+                                        }
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                    IconButton(modifier = Modifier.testTag("add-${episode.title}"), onClick = {
                                         controller?.let { player ->
                                             val existing = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == episode.id }
                                             if (existing == null || existing < player.currentMediaItemIndex) {
                                                 if (existing != null) player.removeMediaItem(existing)
                                                 player.addMediaItem(mediaItem(episode, selected))
                                                 prepareForPlayback(episode)
+                                                message = "Added to Up Next"
                                             } else message = "Already in Up Next"
                                         } ?: run { message = "Player is starting. Try again." }
-                                    }) { Text("Add to Up Next") }
-                                    Spacer(Modifier.weight(1f))
-                                    val isWorking = activeProgress != null || episode.status in listOf("DOWNLOADING", "QUEUED", "PROCESSING")
-                                    if (isWorking) {
-                                        TextButton(
-                                            modifier = Modifier.testTag("cancel-${episode.id}"),
-                                            onClick = { scope.launch { cancelEpisode(context, dao, episode) } }
-                                        ) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                    } else {
-                                        if (episode.localPath != null && File(episode.localPath).isFile) {
-                                            TextButton(onClick = {
-                                                scope.launch {
-                                                    if (!removePastItemsIfSafe(setOf(episode.id))) {
-                                                        message = "Remove this episode from Up Next before deleting its download."
-                                                    } else {
-                                                        File(context.filesDir, "episodes/${episode.id}").deleteRecursively()
-                                                        dao.saveEpisode(episode.copy(status = "NOT_DOWNLOADED", localPath = null, fingerprintPath = null))
-                                                        dao.deleteSegments(episode.id)
-                                                    }
+                                    }) { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = "Add to Up Next") }
+                                    if (!isWorking && downloaded) {
+                                        IconButton(onClick = {
+                                            scope.launch {
+                                                if (!removePastItemsIfSafe(setOf(episode.id))) {
+                                                    message = "Remove this episode from Up Next before deleting its download."
+                                                } else {
+                                                    dao.saveEpisode(withContext(Dispatchers.IO) { deleteEpisodeDownload(context.filesDir, episode) })
+                                                    dao.deleteSegments(episode.id)
                                                 }
-                                            }) { Text("Delete", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                        }
-                                        if (episode.status !in listOf("DOWNLOADING", "QUEUED", "PROCESSING", "READY")) {
-                                            Button(
-                                                onClick = { startDownload(episode) },
-                                                shape = RoundedCornerShape(20.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = PocketCastsSurfaceVariant)
-                                            ) {
-                                                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                                                Spacer(Modifier.width(4.dp))
-                                                Text(if (episode.status == "FAILED") "Retry" else "Download")
                                             }
-                                        }
+                                        }) { Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete download", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                                     }
                                 }
                             }
