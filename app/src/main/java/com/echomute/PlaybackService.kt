@@ -51,6 +51,7 @@ class PlaybackService : MediaLibraryService() {
     private var catchUpPending = false
     private var lastSavedProgress: Pair<String, Long>? = null
     private var swapping = false
+    private val finishedEpisodeIds = mutableSetOf<String>()
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private lateinit var effectsPrefs: SharedPreferences
     private val effectsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -83,6 +84,7 @@ class PlaybackService : MediaLibraryService() {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val previous = currentId.value
                 currentId.value = mediaItem?.mediaId
+                mediaItem?.mediaId?.let { finishedEpisodeIds.remove(it) }
                 if (swapping) return
                 catchUpPending = true
                 scheduleSkips()
@@ -93,6 +95,15 @@ class PlaybackService : MediaLibraryService() {
                     if (playPrefs.getBoolean("sleepEndOfEpisode", false)) {
                         playPrefs.edit().putBoolean("sleepEndOfEpisode", false).apply()
                         player.pause()
+                    }
+                } else if (previous != null) {
+                    scope.launch {
+                        val ep = dao.episode(previous)
+                        val pos = maxOf(lastSavedProgress?.takeIf { it.first == previous }?.second ?: 0L, ep?.positionMs ?: 0L)
+                        val dur = ep?.durationMs
+                        if (isEpisodeCompleted(pos, dur)) {
+                            finishEpisode(previous)
+                        }
                     }
                 }
                 mediaItem?.mediaId?.let { resumeSavedPosition(it) }
@@ -106,7 +117,8 @@ class PlaybackService : MediaLibraryService() {
                     if (playPrefs.getBoolean("sleepEndOfEpisode", false)) {
                         playPrefs.edit().putBoolean("sleepEndOfEpisode", false).apply()
                     }
-                    currentId.value?.let { id -> scope.launch { finishEpisode(id) } }
+                    val id = currentId.value ?: player.currentMediaItem?.mediaId
+                    if (id != null) scope.launch { finishEpisode(id) }
                 } else if (playbackState == Player.STATE_READY) {
                     scheduleSkips()
                 }
@@ -197,15 +209,20 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private suspend fun finishEpisode(id: String) {
-        dao.markFinished(id)
-        if (!autoDeletePlayedEnabled(effectsPrefs)) return
-        val ep = dao.episode(id) ?: return
-        WorkManager.getInstance(this).cancelUniqueWork("episode-$id")
-        EpisodeProgressTracker.clear(id)
-        val cleared = withContext(Dispatchers.IO) { deleteEpisodeDownload(filesDir, ep) }
-        dao.saveEpisode(cleared)
-        dao.deleteSegments(id)
-        detachDeletedEpisode(id, ep.audioUrl)
+        val ep = dao.episode(id) ?: run {
+            dao.markFinished(id)
+            return
+        }
+        try {
+            WorkManager.getInstance(this).cancelUniqueWork("episode-$id")
+        } catch (_: Exception) {}
+        val autoDelete = autoDeletePlayedEnabled(effectsPrefs)
+        withContext(Dispatchers.IO) {
+            finishEpisodeAndCleanup(dao, filesDir, ep, autoDelete)
+        }
+        if (autoDelete && !ep.starred) {
+            detachDeletedEpisode(id, ep.audioUrl)
+        }
     }
 
     private fun detachDeletedEpisode(id: String, remoteUrl: String) {
@@ -302,17 +319,24 @@ class PlaybackService : MediaLibraryService() {
         val items = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).toQueueItem() }
         val snapshot = PlaybackQueueSnapshot(items, player.currentMediaItemIndex, player.currentPosition, player.playbackParameters.speed)
         prefs.edit().putString("snapshot", encodePlaybackQueue(snapshot)).apply()
-        saveProgress()
+        savePosition()
     }
 
-    private fun saveProgress() {
+    private fun savePosition() {
         if (player.playbackState == Player.STATE_ENDED) return
         val id = player.currentMediaItem?.mediaId ?: return
         val position = player.currentPosition
+        val duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET }
+        if (isEpisodeCompleted(position, duration)) {
+            if (finishedEpisodeIds.add(id)) {
+                scope.launch { finishEpisode(id) }
+            }
+            return
+        }
+        finishedEpisodeIds.remove(id)
         val last = lastSavedProgress
         if (last != null && last.first == id && kotlin.math.abs(last.second - position) < 1_000) return
         lastSavedProgress = id to position
-        val duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET }
         scope.launch { dao.savePosition(id, position, duration) }
     }
 

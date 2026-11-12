@@ -123,6 +123,32 @@ const val AUTO_DELETE_PLAYED_KEY = "autoDeletePlayed"
 
 fun autoDeletePlayedEnabled(prefs: SharedPreferences): Boolean = prefs.getBoolean(AUTO_DELETE_PLAYED_KEY, true)
 
+fun isEpisodeCompleted(positionMs: Long, durationMs: Long?): Boolean {
+    if (durationMs == null || durationMs <= 0L || positionMs <= 0L) return false
+    if (positionMs >= durationMs) return true
+    if (positionMs >= (durationMs * 0.95).toLong()) return true
+    if (durationMs > 30_000L && durationMs - positionMs <= 30_000L) return true
+    return false
+}
+
+suspend fun finishEpisodeAndCleanup(
+    dao: LibraryDao,
+    filesDir: File,
+    episode: Episode,
+    autoDeleteEnabled: Boolean
+): Episode {
+    dao.markFinished(episode.id)
+    EpisodeProgressTracker.clear(episode.id)
+    val latest = dao.episode(episode.id) ?: episode
+    if (!autoDeleteEnabled || latest.starred) {
+        return latest.copy(positionMs = 0L, finished = true)
+    }
+    val cleared = deleteEpisodeDownload(filesDir, latest).copy(positionMs = 0L, finished = true)
+    dao.saveEpisode(cleared)
+    dao.deleteSegments(episode.id)
+    return cleared
+}
+
 fun deleteEpisodeDownload(filesDir: File, episode: Episode): Episode {
     File(filesDir, "episodes/${episode.id}").deleteRecursively()
     episode.localPath?.let(::File)?.takeIf { it.isFile }?.delete()

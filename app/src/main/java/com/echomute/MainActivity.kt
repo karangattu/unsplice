@@ -1004,7 +1004,41 @@ private fun LibraryScreen() {
                         items(upcoming.size) { index ->
                             val item = upcoming[index]
                             val title = item.mediaMetadata.title?.toString().orEmpty()
-                            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("queue-$title"), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(12.dp)) {
+                            var dragAccumulated by remember(item.mediaId) { mutableFloatStateOf(0f) }
+                            Card(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .testTag("queue-$title")
+                                    .pointerInput(item.mediaId) {
+                                        detectHorizontalDragGestures(
+                                            onDragStart = { dragAccumulated = 0f },
+                                            onDragEnd = {
+                                                if (dragAccumulated < -160f) {
+                                                    scope.launch {
+                                                        val ep = dao.episode(item.mediaId)
+                                                        val targetIndex = (0 until (controller?.mediaItemCount ?: 0)).firstOrNull { controller?.getMediaItemAt(it)?.mediaId == item.mediaId }
+                                                        if (targetIndex != null) controller?.removeMediaItem(targetIndex)
+                                                        if (ep != null) {
+                                                            try {
+                                                                WorkManager.getInstance(context).cancelUniqueWork("episode-${ep.id}")
+                                                            } catch (_: Exception) {}
+                                                            withContext(Dispatchers.IO) {
+                                                                finishEpisodeAndCleanup(dao, context.filesDir, ep, autoDeletePlayed)
+                                                            }
+                                                        } else {
+                                                            dao.markFinished(item.mediaId)
+                                                        }
+                                                    }
+                                                }
+                                                dragAccumulated = 0f
+                                            },
+                                            onHorizontalDrag = { _, dragAmount -> dragAccumulated += dragAmount }
+                                        )
+                                    },
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
                                 Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f).clickable {
                                         controller?.let { player ->
@@ -1023,6 +1057,27 @@ private fun LibraryScreen() {
                                     }
                                     IconButton(enabled = index > 1, onClick = { controller?.moveMediaItem(currentIndex + index, currentIndex + index - 1) }) { Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move $title up") }
                                     IconButton(enabled = index > 0 && index < upcoming.lastIndex, onClick = { controller?.moveMediaItem(currentIndex + index, currentIndex + index + 1) }) { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move $title down") }
+                                    IconButton(
+                                        modifier = Modifier.testTag("finish-$title"),
+                                        onClick = {
+                                            scope.launch {
+                                                val ep = dao.episode(item.mediaId)
+                                                controller?.removeMediaItem(currentIndex + index)
+                                                if (ep != null) {
+                                                    try {
+                                                        WorkManager.getInstance(context).cancelUniqueWork("episode-${ep.id}")
+                                                    } catch (_: Exception) {}
+                                                    withContext(Dispatchers.IO) {
+                                                        finishEpisodeAndCleanup(dao, context.filesDir, ep, autoDeletePlayed)
+                                                    }
+                                                } else {
+                                                    dao.markFinished(item.mediaId)
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Icon(Icons.Filled.Check, contentDescription = "Mark $title finished")
+                                    }
                                     IconButton(onClick = { controller?.removeMediaItem(currentIndex + index) }) { Icon(Icons.Filled.Close, contentDescription = "Remove $title from Up Next") }
                                 }
                             }
@@ -1061,8 +1116,51 @@ private fun LibraryScreen() {
                     LazyColumn(Modifier.weight(1f)) {
                         items(filteredSmart, key = { it.id }) { ep ->
                             val pod = podcastsById[ep.podcastId]
+                            var dragAccumulated by remember(ep.id) { mutableFloatStateOf(0f) }
                             Card(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .pointerInput(ep.id, ep.finished) {
+                                        detectHorizontalDragGestures(
+                                            onDragStart = { dragAccumulated = 0f },
+                                            onDragEnd = {
+                                                if (dragAccumulated < -160f) {
+                                                    scope.launch {
+                                                        val nextFinished = !ep.finished
+                                                        if (nextFinished) {
+                                                            try {
+                                                                WorkManager.getInstance(context).cancelUniqueWork("episode-${ep.id}")
+                                                            } catch (_: Exception) {}
+                                                            withContext(Dispatchers.IO) {
+                                                                finishEpisodeAndCleanup(dao, context.filesDir, ep, autoDeletePlayed)
+                                                            }
+                                                            if (autoDeletePlayed && !ep.starred) {
+                                                                controller?.let { player ->
+                                                                    for (idx in player.mediaItemCount - 1 downTo 0) {
+                                                                        if (player.getMediaItemAt(idx).mediaId == ep.id) {
+                                                                            if (idx == player.currentMediaItemIndex) {
+                                                                                val item = player.getMediaItemAt(idx)
+                                                                                if (item.localConfiguration?.uri?.scheme == "file") {
+                                                                                    player.replaceMediaItem(idx, item.toQueueItem().copy(uri = ep.audioUrl).toMediaItem())
+                                                                                }
+                                                                            } else {
+                                                                                player.removeMediaItem(idx)
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        } else {
+                                                            dao.setFinished(ep.id, false)
+                                                        }
+                                                    }
+                                                }
+                                                dragAccumulated = 0f
+                                            },
+                                            onHorizontalDrag = { _, dragAmount -> dragAccumulated += dragAmount }
+                                        )
+                                    },
                                 shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                             ) {
@@ -1421,10 +1519,31 @@ private fun LibraryScreen() {
                                             } else if (dragAccumulated < -160f) {
                                                 scope.launch {
                                                     val nextFinished = !episode.finished
-                                                    dao.setFinished(episode.id, nextFinished)
-                                                    if (nextFinished && autoDeletePlayed && episode.localPath != null) {
-                                                        dao.saveEpisode(withContext(Dispatchers.IO) { deleteEpisodeDownload(context.filesDir, episode) })
-                                                        dao.deleteSegments(episode.id)
+                                                    if (nextFinished) {
+                                                        try {
+                                                            WorkManager.getInstance(context).cancelUniqueWork("episode-${episode.id}")
+                                                        } catch (_: Exception) {}
+                                                        withContext(Dispatchers.IO) {
+                                                            finishEpisodeAndCleanup(dao, context.filesDir, episode, autoDeletePlayed)
+                                                        }
+                                                        if (autoDeletePlayed && !episode.starred) {
+                                                            controller?.let { player ->
+                                                                for (idx in player.mediaItemCount - 1 downTo 0) {
+                                                                    if (player.getMediaItemAt(idx).mediaId == episode.id) {
+                                                                        if (idx == player.currentMediaItemIndex) {
+                                                                            val item = player.getMediaItemAt(idx)
+                                                                            if (item.localConfiguration?.uri?.scheme == "file") {
+                                                                                player.replaceMediaItem(idx, item.toQueueItem().copy(uri = episode.audioUrl).toMediaItem())
+                                                                            }
+                                                                        } else {
+                                                                            player.removeMediaItem(idx)
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    } else {
+                                                        dao.setFinished(episode.id, false)
                                                     }
                                                 }
                                             }
