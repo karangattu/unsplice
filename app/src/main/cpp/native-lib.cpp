@@ -51,3 +51,68 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_com_echomute_NativeFingerprint_gene
     if (result) env->SetLongArrayRegion(result, 0, packed.size(), packed.data());
     return result;
 }
+
+extern "C" JNIEXPORT jlong JNICALL Java_com_echomute_NativeFingerprint_createAnalyzer(
+    JNIEnv*, jobject, jint sampleRate, jint channels, jint targetRate, jint envelopeRate, jboolean enableFingerprint
+) {
+    auto* analyzer = new StreamingAudioAnalyzer(sampleRate, channels, targetRate, envelopeRate, enableFingerprint == JNI_TRUE);
+    return reinterpret_cast<jlong>(analyzer);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_echomute_NativeFingerprint_configureAnalyzer(
+    JNIEnv*, jobject, jlong handle, jint sampleRate, jint channels
+) {
+    if (!handle) return;
+    reinterpret_cast<StreamingAudioAnalyzer*>(handle)->configure(sampleRate, channels);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_echomute_NativeFingerprint_feedPcmBuffer(
+    JNIEnv* env, jobject, jlong handle, jobject buffer, jint offset, jint size
+) {
+    if (!handle || !buffer || size <= 0 || offset < 0) return;
+    auto* base = static_cast<const uint8_t*>(env->GetDirectBufferAddress(buffer));
+    if (!base) return;
+    jlong cap = env->GetDirectBufferCapacity(buffer);
+    if (cap <= 0 || static_cast<jlong>(offset) + size > cap) return;
+    reinterpret_cast<StreamingAudioAnalyzer*>(handle)->feedPcmBytes(base + offset, static_cast<size_t>(size));
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_echomute_NativeFingerprint_feedPcmBytes(
+    JNIEnv* env, jobject, jlong handle, jbyteArray bytesArray, jint offset, jint size
+) {
+    if (!handle || !bytesArray || size <= 0 || offset < 0) return;
+    jbyte* data = env->GetByteArrayElements(bytesArray, nullptr);
+    if (!data) return;
+    reinterpret_cast<StreamingAudioAnalyzer*>(handle)->feedPcmBytes(
+        reinterpret_cast<const uint8_t*>(data) + offset,
+        static_cast<size_t>(size)
+    );
+    env->ReleaseByteArrayElements(bytesArray, data, JNI_ABORT);
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL Java_com_echomute_NativeFingerprint_finishAnalyzer(JNIEnv* env, jobject, jlong handle) {
+    if (!handle) return env->NewLongArray(0);
+    auto* analyzer = reinterpret_cast<StreamingAudioAnalyzer*>(handle);
+    analyzer->finish();
+    const auto& fp = analyzer->fingerprints();
+    jlongArray result = env->NewLongArray(static_cast<jsize>(fp.size()));
+    if (result && !fp.empty()) {
+        env->SetLongArrayRegion(result, 0, static_cast<jsize>(fp.size()), reinterpret_cast<const jlong*>(fp.data()));
+    }
+    return result;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL Java_com_echomute_NativeFingerprint_analyzerEnvelope(JNIEnv* env, jobject, jlong handle) {
+    if (!handle) return env->NewIntArray(0);
+    auto* analyzer = reinterpret_cast<StreamingAudioAnalyzer*>(handle);
+    const auto& ev = analyzer->envelope();
+    jintArray result = env->NewIntArray(static_cast<jsize>(ev.size()));
+    if (result && !ev.empty()) {
+        env->SetIntArrayRegion(result, 0, static_cast<jsize>(ev.size()), reinterpret_cast<const jint*>(ev.data()));
+    }
+    return result;
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_echomute_NativeFingerprint_destroyAnalyzer(JNIEnv*, jobject, jlong handle) {
+    delete reinterpret_cast<StreamingAudioAnalyzer*>(handle);
+}
