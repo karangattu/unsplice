@@ -59,13 +59,17 @@ class LibraryDatabaseTest {
             db.execSQL("INSERT INTO ad_segments (episodeId, startMs, endMs) VALUES ('e', 200000, 220000)")
             db.version = 1
         }
-        val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name).addMigrations(LibraryDatabase.MIGRATION_1_2, LibraryDatabase.MIGRATION_2_3, LibraryDatabase.MIGRATION_3_4, LibraryDatabase.MIGRATION_4_5, LibraryDatabase.MIGRATION_5_6).build()
+        val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name).addMigrations(LibraryDatabase.MIGRATION_1_2, LibraryDatabase.MIGRATION_2_3, LibraryDatabase.MIGRATION_3_4, LibraryDatabase.MIGRATION_4_5, LibraryDatabase.MIGRATION_5_6, LibraryDatabase.MIGRATION_6_7).build()
         try {
             val segment = db.library().segments("e").single()
             assertEquals("repeat", segment.source)
             assertEquals(0.6f, segment.confidence, 0.0001f)
             assertNull(db.library().episode("e")?.chaptersUrl)
             assertNull(db.library().episode("e")?.publishedAt)
+            assertNull(db.library().episode("e")?.transcriptUrl)
+            assertNull(db.library().episode("e")?.transcriptType)
+            assertNull(db.library().episode("e")?.rssDurationMs)
+            assertNull(db.library().episode("e")?.pscChaptersJson)
             assertNull(db.library().podcast("p")?.artworkUrl)
             assertEquals(0L, db.library().episode("e")?.positionMs)
             assertEquals(false, db.library().episode("e")?.finished)
@@ -93,11 +97,14 @@ class LibraryDatabaseTest {
             db.execSQL("INSERT INTO episodes VALUES ('e', 'p', 'One', 'https://example.com/one.mp3', '/saved.mp3', NULL, 'READY', NULL, NULL, 123)")
             db.version = 3
         }
-        val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name).addMigrations(LibraryDatabase.MIGRATION_3_4, LibraryDatabase.MIGRATION_4_5, LibraryDatabase.MIGRATION_5_6).build()
+        val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name).addMigrations(LibraryDatabase.MIGRATION_3_4, LibraryDatabase.MIGRATION_4_5, LibraryDatabase.MIGRATION_5_6, LibraryDatabase.MIGRATION_6_7).build()
         try {
             assertEquals(false, db.library().podcast("p")?.autoSkip)
             assertNull(db.library().podcast("p")?.artworkUrl)
             assertEquals("/saved.mp3", db.library().episode("e")?.localPath)
+            assertNull(db.library().episode("e")?.transcriptUrl)
+            assertNull(db.library().episode("e")?.rssDurationMs)
+            assertNull(db.library().episode("e")?.pscChaptersJson)
             db.library().setArtworkIfMissing("p", "https://example.com/cover.jpg")
             assertEquals("https://example.com/cover.jpg", db.library().podcast("p")?.artworkUrl)
         } finally { db.close(); context.deleteDatabase(name) }

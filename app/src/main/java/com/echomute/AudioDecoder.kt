@@ -206,6 +206,7 @@ fun decodeAudioForAnalysis(
                     NativeFingerprint.feedPcmBuffer(handle, buffer, offset, size)
                 } else {
                     if (fallbackBytes.size < size) fallbackBytes = ByteArray(maxOf(fallbackBytes.size * 2, size))
+                    buffer.limit(offset + size)
                     buffer.position(offset)
                     buffer.get(fallbackBytes, 0, size)
                     NativeFingerprint.feedPcmBytes(handle, fallbackBytes, 0, size)

@@ -33,6 +33,8 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_com_echomute_NativeFingerprint_gene
 
 extern "C" JNIEXPORT jlongArray JNICALL Java_com_echomute_NativeFingerprint_generateFingerprintsFromBytes(JNIEnv* env, jobject, jbyteArray bytesArray, jint length) {
     if (!bytesArray || length <= 0) return env->NewLongArray(0);
+    jsize arrayLen = env->GetArrayLength(bytesArray);
+    if (length > arrayLen) return env->NewLongArray(0);
     jbyte* data = env->GetByteArrayElements(bytesArray, nullptr);
     if (!data) return env->NewLongArray(0);
 
@@ -81,6 +83,8 @@ extern "C" JNIEXPORT void JNICALL Java_com_echomute_NativeFingerprint_feedPcmByt
     JNIEnv* env, jobject, jlong handle, jbyteArray bytesArray, jint offset, jint size
 ) {
     if (!handle || !bytesArray || size <= 0 || offset < 0) return;
+    jsize arrayLen = env->GetArrayLength(bytesArray);
+    if (static_cast<jlong>(offset) + size > arrayLen) return;
     jbyte* data = env->GetByteArrayElements(bytesArray, nullptr);
     if (!data) return;
     reinterpret_cast<StreamingAudioAnalyzer*>(handle)->feedPcmBytes(
