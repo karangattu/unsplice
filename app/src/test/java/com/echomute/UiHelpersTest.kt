@@ -63,4 +63,17 @@ class UiHelpersTest {
         assertEquals("1 episode in queue", formatQueueSummary(1))
         assertEquals("5 episodes in queue", formatQueueSummary(5))
     }
+
+    @Test fun formatsAdSegmentLabelsAndRemainingTime() {
+        assertEquals("Ad break", formatAdSegmentLabel("marker"))
+        assertEquals("Chapter", formatAdSegmentLabel("chapter"))
+        assertEquals("Sponsor read", formatAdSegmentLabel("transcript"))
+        assertEquals("Repeat", formatAdSegmentLabel("repeat"))
+        assertEquals("Repeat", formatAdSegmentLabel("unknown"))
+
+        val seg = AdSegment(id = 1, episodeId = "e1", startMs = 10_000L, endMs = 45_000L, source = "marker", confidence = 0.9f)
+        assertEquals("Ad break \u2022 25s left", formatAdRemainingLabel(seg, 20_000L))
+        assertEquals("Ad break detected", formatAdRemainingLabel(seg, 45_000L))
+        assertEquals("Ad break detected", formatAdRemainingLabel(seg, 50_000L))
+    }
 }

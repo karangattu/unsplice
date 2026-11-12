@@ -90,6 +90,7 @@ internal fun PlaybackProgress(
     duration: Long,
     segments: List<AdSegment>,
     chapters: List<Chapter> = emptyList(),
+    autoSkip: Boolean = true,
     onSeek: (Long) -> Unit
 ) {
     if (duration <= 0) return
@@ -97,6 +98,7 @@ internal fun PlaybackProgress(
     val shownPosition = scrubPosition ?: position
     val fraction = (shownPosition.toFloat() / duration).coerceIn(0f, 1f)
     val activeChapter = remember(chapters, shownPosition, duration) { currentChapter(chapters, shownPosition, duration) }
+    val adSummary = remember(segments, autoSkip) { formatAdSummary(segments, autoSkip) }
     Column {
         if (activeChapter != null && activeChapter.title.isNotBlank()) {
             Text(
@@ -113,10 +115,12 @@ internal fun PlaybackProgress(
                 val y = size.height / 2
                 drawLine(UnspliceTrack, Offset(0f, y), Offset(size.width, y), size.height, StrokeCap.Round)
                 if (fraction > 0) drawLine(UnspliceMint, Offset(0f, y), Offset(size.width * fraction, y), size.height, StrokeCap.Round)
+                val minWidthPx = 3.dp.toPx()
                 segments.forEach { ad ->
                     val start = (ad.startMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
-                    val end = (ad.endMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
-                    val color = if (ad.confidence >= AUTO_SKIP_CONFIDENCE) UnspliceAmber else UnspliceAmber.copy(alpha = 0.45f)
+                    val rawEnd = (ad.endMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
+                    val end = maxOf(rawEnd, (start + minWidthPx).coerceAtMost(size.width))
+                    val color = if (autoSkip && ad.confidence >= AUTO_SKIP_CONFIDENCE) UnspliceAmber else UnspliceAmber.copy(alpha = 0.55f)
                     if (end > start) drawLine(color, Offset(start, y), Offset(end, y), size.height, StrokeCap.Round)
                 }
                 chapters.forEach { chapter ->
@@ -148,26 +152,45 @@ internal fun PlaybackProgress(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(formatTime(shownPosition), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            formatAdSummary(segments)?.let { summary ->
-                Text(summary, style = MaterialTheme.typography.labelSmall, color = UnspliceAmber, fontWeight = FontWeight.SemiBold)
-            }
             Text(formatTime(duration), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (adSummary != null) {
+            Spacer(Modifier.height(6.dp))
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = UnspliceAmberContainer,
+                    border = BorderStroke(1.dp, UnspliceAmber.copy(alpha = 0.35f))
+                ) {
+                    Text(
+                        adSummary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = UnspliceAmber,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-internal fun MiniPlaybackProgress(position: Long, duration: Long, segments: List<AdSegment>) {
+internal fun MiniPlaybackProgress(position: Long, duration: Long, segments: List<AdSegment>, autoSkip: Boolean = true) {
     if (duration <= 0) return
     val fraction = (position.toFloat() / duration).coerceIn(0f, 1f)
     Canvas(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50))) {
         val y = size.height / 2
         drawLine(UnspliceTrack, Offset(0f, y), Offset(size.width, y), size.height, StrokeCap.Round)
         if (fraction > 0) drawLine(UnspliceMint, Offset(0f, y), Offset(size.width * fraction, y), size.height, StrokeCap.Round)
+        val minWidthPx = 2.dp.toPx()
         segments.forEach { ad ->
             val start = (ad.startMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
-            val end = (ad.endMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
-            val color = if (ad.confidence >= AUTO_SKIP_CONFIDENCE) UnspliceAmber else UnspliceAmber.copy(alpha = 0.45f)
+            val rawEnd = (ad.endMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
+            val end = maxOf(rawEnd, (start + minWidthPx).coerceAtMost(size.width))
+            val color = if (autoSkip && ad.confidence >= AUTO_SKIP_CONFIDENCE) UnspliceAmber else UnspliceAmber.copy(alpha = 0.55f)
             if (end > start) drawLine(color, Offset(start, y), Offset(end, y), size.height, StrokeCap.Round)
         }
     }

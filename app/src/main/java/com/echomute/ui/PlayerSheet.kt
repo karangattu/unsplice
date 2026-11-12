@@ -41,16 +41,21 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -82,6 +87,7 @@ internal fun MiniPlayerBar(
     position: Long,
     duration: Long,
     segments: List<AdSegment>,
+    autoSkip: Boolean,
     currentAd: AdSegment?,
     showUndoSkip: Boolean,
     onTogglePlayPause: () -> Unit,
@@ -92,7 +98,7 @@ internal fun MiniPlayerBar(
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = UnspliceSurfaceElevated,
-        border = BorderStroke(1.dp, if (currentAd != null) UnspliceAmber.copy(alpha = 0.5f) else UnspliceOutline),
+        border = BorderStroke(1.dp, if (currentAd != null) UnspliceAmber.copy(alpha = 0.55f) else UnspliceOutline),
         shadowElevation = 10.dp,
         modifier = Modifier
             .fillMaxWidth()
@@ -103,7 +109,7 @@ internal fun MiniPlayerBar(
                 Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onExpand)
-                    .padding(start = 10.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                    .padding(start = 10.dp, end = 6.dp, top = 8.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PodcastArtwork(
@@ -123,11 +129,12 @@ internal fun MiniPlayerBar(
                     )
                     if (currentAd != null) {
                         Text(
-                            "Ad break detected",
+                            formatAdRemainingLabel(currentAd, position),
                             style = MaterialTheme.typography.labelSmall,
                             color = UnspliceAmber,
                             fontWeight = FontWeight.SemiBold,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     } else {
                         Text(
@@ -137,21 +144,6 @@ internal fun MiniPlayerBar(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                    }
-                }
-                if (currentAd != null) {
-                    TextButton(
-                        onClick = { onSkipAd(currentAd) },
-                        contentPadding = PaddingValues(horizontal = 8.dp)
-                    ) {
-                        Text("Skip ad", color = UnspliceAmber, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                    }
-                } else if (showUndoSkip) {
-                    TextButton(
-                        onClick = onUndoSkip,
-                        contentPadding = PaddingValues(horizontal = 8.dp)
-                    ) {
-                        Text("Undo skip", color = UnspliceMint, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
                     }
                 }
                 IconButton(onClick = onTogglePlayPause) {
@@ -170,8 +162,45 @@ internal fun MiniPlayerBar(
                 }
             }
             if (duration > 0) {
-                Box(Modifier.padding(horizontal = 10.dp).padding(bottom = 2.dp)) {
-                    MiniPlaybackProgress(position, duration, segments)
+                Box(Modifier.padding(horizontal = 10.dp).padding(bottom = if (currentAd != null || showUndoSkip) 4.dp else 2.dp)) {
+                    MiniPlaybackProgress(position, duration, segments, autoSkip)
+                }
+            }
+            if (currentAd != null || showUndoSkip) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (currentAd != null) {
+                        FilledTonalButton(
+                            onClick = { onSkipAd(currentAd) },
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = UnspliceAmberContainer,
+                                contentColor = UnspliceAmber
+                            )
+                        ) {
+                            Icon(Icons.Filled.FastForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Skip ad", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
+                    }
+                    if (showUndoSkip) {
+                        OutlinedButton(
+                            onClick = onUndoSkip,
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                            border = BorderStroke(1.dp, UnspliceMint.copy(alpha = 0.5f))
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Undo skip", color = UnspliceMint, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                        }
+                    }
                 }
             }
         }
@@ -193,7 +222,12 @@ internal fun NowPlayingSheet(
     sleepLabel: String,
     segments: List<AdSegment>,
     chapters: List<Chapter>,
+    autoSkip: Boolean,
+    canToggleAutoSkip: Boolean,
+    episodeStatus: String?,
+    episodeProgress: EpisodeProgress?,
     showPlayerChapters: Boolean,
+    showPlayerAds: Boolean,
     hasTranscript: Boolean,
     currentAd: AdSegment?,
     showUndoSkip: Boolean,
@@ -206,9 +240,13 @@ internal fun NowPlayingSheet(
     onToggleTrimSilence: () -> Unit,
     onToggleVoiceBoost: () -> Unit,
     onCycleSleepTimer: () -> Unit,
+    onToggleAutoSkip: () -> Unit,
     onToggleChapters: () -> Unit,
+    onToggleAdsPanel: () -> Unit,
     onOpenTranscript: () -> Unit,
     onToggleChapterSkip: (Chapter, Long, AdSegment?) -> Unit,
+    onKeepSegment: (AdSegment) -> Unit,
+    onScanAds: () -> Unit,
     onSkipAd: (AdSegment) -> Unit,
     onUndoSkip: () -> Unit
 ) {
@@ -336,6 +374,15 @@ internal fun NowPlayingSheet(
                     }
                     if (currentAd != null || showUndoSkip) {
                         Spacer(Modifier.height(12.dp))
+                        if (currentAd != null) {
+                            Text(
+                                formatAdRemainingLabel(currentAd, position),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = UnspliceAmber,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                        }
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -368,7 +415,7 @@ internal fun NowPlayingSheet(
                         }
                     }
                     Spacer(Modifier.height(20.dp))
-                    PlaybackProgress(position, duration, segments, chapters, onSeek)
+                    PlaybackProgress(position, duration, segments, chapters, autoSkip, onSeek)
                     Spacer(Modifier.height(16.dp))
                     Row(
                         Modifier.fillMaxWidth(),
@@ -458,6 +505,32 @@ internal fun NowPlayingSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 FilterChip(
+                                    selected = autoSkip,
+                                    enabled = canToggleAutoSkip,
+                                    onClick = onToggleAutoSkip,
+                                    leadingIcon = { Icon(Icons.Filled.Shield, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                    label = { Text(if (autoSkip) "Auto-skip: ON" else "Auto-skip: OFF", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = UnspliceAmberContainer,
+                                        selectedLabelColor = UnspliceAmber,
+                                        selectedLeadingIconColor = UnspliceAmber
+                                    )
+                                )
+                                FilterChip(
+                                    selected = showPlayerAds,
+                                    onClick = onToggleAdsPanel,
+                                    leadingIcon = { Icon(Icons.Filled.FastForward, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                    label = {
+                                        val label = if (segments.isNotEmpty()) "Ad breaks (${segments.size})" else "Ad breaks"
+                                        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = UnspliceAmberContainer,
+                                        selectedLabelColor = UnspliceAmber,
+                                        selectedLeadingIconColor = UnspliceAmber
+                                    )
+                                )
+                                FilterChip(
                                     selected = trimSilence,
                                     onClick = onToggleTrimSilence,
                                     leadingIcon = { Icon(Icons.Filled.GraphicEq, contentDescription = null, modifier = Modifier.size(16.dp)) },
@@ -499,6 +572,122 @@ internal fun NowPlayingSheet(
                                         leadingIcon = { Icon(Icons.Filled.Subtitles, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                         label = { Text("Transcript", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) }
                                     )
+                                }
+                            }
+                        }
+                    }
+                    if (showPlayerAds) {
+                        Spacer(Modifier.height(14.dp))
+                        val isScanning = episodeProgress != null || episodeStatus in listOf("QUEUED", "DOWNLOADING", "PROCESSING")
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = UnspliceSurface,
+                            border = BorderStroke(1.dp, UnspliceOutline),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            "AD BREAKS",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = UnspliceAmber,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            if (autoSkip) "Auto-skip enabled for this show" else "Auto-skip disabled • manual skip only",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (!isScanning && episodeStatus != null) {
+                                        TextButton(
+                                            onClick = onScanAds,
+                                            contentPadding = PaddingValues(horizontal = 8.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Refresh, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Scan again", color = UnspliceMint, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                                        }
+                                    }
+                                }
+                                if (isScanning) {
+                                    val scanLabel = episodeProgress?.summary() ?: when (episodeStatus) {
+                                        "PROCESSING" -> "Finding ads…"
+                                        "DOWNLOADING" -> "Downloading episode…"
+                                        else -> "Queued for ad scan…"
+                                    }
+                                    Text(scanLabel, style = MaterialTheme.typography.bodySmall, color = UnspliceMint, fontWeight = FontWeight.Medium)
+                                    if (episodeProgress?.percent != null) {
+                                        LinearProgressIndicator(
+                                            progress = { (episodeProgress.percent / 100f).coerceIn(0f, 1f) },
+                                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)),
+                                            color = UnspliceMint,
+                                            trackColor = UnspliceTrack
+                                        )
+                                    } else {
+                                        LinearProgressIndicator(
+                                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)),
+                                            color = UnspliceMint,
+                                            trackColor = UnspliceTrack
+                                        )
+                                    }
+                                } else if (segments.isEmpty()) {
+                                    Text(
+                                        "No ad breaks detected yet for this episode.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    segments.forEachIndexed { idx, seg ->
+                                        if (idx > 0) HorizontalDivider(color = UnspliceOutline)
+                                        val isCurrentSeg = position >= seg.startMs && position < seg.endMs
+                                        val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) " • manual skip" else ""
+                                        Row(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(if (isCurrentSeg) UnspliceAmberContainer else Color.Transparent)
+                                                .clickable { onSeek(seg.startMs) }
+                                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(Modifier.weight(1f).padding(end = 6.dp)) {
+                                                Text(
+                                                    "${formatTime(seg.startMs)} – ${formatTime(seg.endMs)}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = if (isCurrentSeg) UnspliceAmber else UnspliceIvory,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                                Text(
+                                                    "${formatAdSegmentLabel(seg.source)}$manual",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { onSkipAd(seg) },
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.SkipNext,
+                                                    contentDescription = "Skip past ad segment",
+                                                    tint = UnspliceAmber,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            TextButton(
+                                                onClick = { onKeepSegment(seg) },
+                                                contentPadding = PaddingValues(horizontal = 8.dp)
+                                            ) {
+                                                Text("Keep", style = MaterialTheme.typography.labelSmall, color = UnspliceMint, maxLines = 1, softWrap = false)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

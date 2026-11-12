@@ -55,3 +55,15 @@ fun formatQueueSummary(upcomingCount: Int): String = when (upcomingCount) {
     1 -> "1 episode in queue"
     else -> "$upcomingCount episodes in queue"
 }
+
+fun formatAdSegmentLabel(source: String): String = when (source) {
+    "marker" -> "Ad break"
+    "chapter" -> "Chapter"
+    "transcript" -> "Sponsor read"
+    else -> "Repeat"
+}
+
+fun formatAdRemainingLabel(ad: AdSegment, positionMs: Long): String {
+    val remainingMs = (ad.endMs - positionMs).coerceAtLeast(0L)
+    return if (remainingMs > 0L) "Ad break \u2022 ${formatCompactDuration(remainingMs)} left" else "Ad break detected"
+}

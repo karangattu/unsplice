@@ -563,12 +563,6 @@ private fun EpisodeCard(
                                 epSegments.forEachIndexed { idx, seg ->
                                     if (idx > 0) HorizontalDivider(color = UnspliceOutline)
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        val label = when (seg.source) {
-                                            "marker" -> "Ad break"
-                                            "chapter" -> "Chapter"
-                                            "transcript" -> "Sponsor read"
-                                            else -> "Repeat"
-                                        }
                                         val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) " • manual skip" else ""
                                         Column(Modifier.weight(1f).padding(end = 8.dp)) {
                                             Text(
@@ -579,7 +573,7 @@ private fun EpisodeCard(
                                                 softWrap = false
                                             )
                                             Text(
-                                                "$label$manual",
+                                                "${formatAdSegmentLabel(seg.source)}$manual",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 maxLines = 1,
@@ -606,16 +600,12 @@ private fun EpisodeCard(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Text(
-                            "Scan again",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = UnspliceMint,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable(onClick = onScanAgain)
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                        TextButton(
+                            onClick = onScanAgain,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("Scan again", style = MaterialTheme.typography.labelMedium, color = UnspliceMint, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                        }
                     }
                 }
                 if (hasTranscript) {

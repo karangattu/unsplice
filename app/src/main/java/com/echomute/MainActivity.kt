@@ -160,6 +160,7 @@ private fun UnspliceApp() {
     var segments by remember { mutableStateOf(emptyList<AdSegment>()) }
     var chapters by remember { mutableStateOf(emptyList<Chapter>()) }
     var showPlayerChapters by rememberSaveable { mutableStateOf(false) }
+    var showPlayerAds by rememberSaveable { mutableStateOf(false) }
 
     val prefs = remember { context.getSharedPreferences("playback", android.content.Context.MODE_PRIVATE) }
     val effectsPrefs = remember { context.getSharedPreferences("audio_effects", android.content.Context.MODE_PRIVATE) }
@@ -523,7 +524,9 @@ private fun UnspliceApp() {
     val upcoming = remember(queue, currentIndex) { queue.drop(currentIndex) }
     val currentTitle = controller?.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty()
     val currentArtist = controller?.currentMediaItem?.mediaMetadata?.artist?.toString().orEmpty()
-    val playingPodcast = podcastsByTitle[currentArtist]
+    val playingEpisode = currentId?.let { episodesById[it] }
+    val playingPodcast = playingEpisode?.let { podcastsById[it.podcastId] } ?: podcastsByTitle[currentArtist]
+    val currentAutoSkip = playingPodcast?.autoSkip ?: true
     val currentAd = segments.firstOrNull { position >= it.startMs && position < it.endMs }
     val showUndoSkip = lastSkip == currentId && currentId != null
 
@@ -551,6 +554,7 @@ private fun UnspliceApp() {
                             position = position,
                             duration = duration,
                             segments = segments,
+                            autoSkip = currentAutoSkip,
                             currentAd = currentAd,
                             showUndoSkip = showUndoSkip,
                             onTogglePlayPause = ::togglePlayPause,
@@ -766,7 +770,6 @@ private fun UnspliceApp() {
             }
         }
 
-        val playingEpisode = currentId?.let { episodesById[it] }
         val hasTranscript = currentId != null && File(context.filesDir, "episodes/$currentId/transcript.tsv").isFile
         NowPlayingSheet(
             visible = playerExpanded && currentId != null && controller != null,
@@ -782,7 +785,12 @@ private fun UnspliceApp() {
             sleepLabel = sleepLabel,
             segments = segments,
             chapters = chapters,
+            autoSkip = currentAutoSkip,
+            canToggleAutoSkip = playingPodcast != null,
+            episodeStatus = playingEpisode?.status,
+            episodeProgress = currentId?.let { activeProgressMap[it] },
             showPlayerChapters = showPlayerChapters,
+            showPlayerAds = showPlayerAds,
             hasTranscript = hasTranscript,
             currentAd = currentAd,
             showUndoSkip = showUndoSkip,
@@ -828,7 +836,13 @@ private fun UnspliceApp() {
                 }
                 sleepLabel = next.label
             },
+            onToggleAutoSkip = {
+                playingPodcast?.let { pod ->
+                    scope.launch { dao.savePodcast(pod.copy(autoSkip = !pod.autoSkip)) }
+                }
+            },
             onToggleChapters = { showPlayerChapters = !showPlayerChapters },
+            onToggleAdsPanel = { showPlayerAds = !showPlayerAds },
             onOpenTranscript = { playingEpisode?.let(::openTranscriptFor) },
             onToggleChapterSkip = { ch, chEnd, skippedSeg ->
                 val id = currentId ?: return@NowPlayingSheet
@@ -840,6 +854,8 @@ private fun UnspliceApp() {
                     }
                 }
             },
+            onKeepSegment = { seg -> scope.launch { dao.deleteSegment(seg.id) } },
+            onScanAds = { playingEpisode?.let(::startDownload) },
             onSkipAd = ::skipAdSegment,
             onUndoSkip = ::undoLastSkip
         )
