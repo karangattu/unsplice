@@ -3,7 +3,7 @@
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#1E1F24"
+    android:background="#131B2B"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:padding="12dp">
@@ -21,7 +21,7 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:text="Unsplice"
-            android:textColor="#F0F0F5"
+            android:textColor="#F4F6FA"
             android:textSize="14sp"
             android:textStyle="bold" />
 
@@ -32,7 +32,7 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:text="Tap to open player"
-            android:textColor="#9E9EB0"
+            android:textColor="#94A3B8"
             android:textSize="12sp" />
     </LinearLayout>
 
@@ -50,6 +50,7 @@
         android:layout_height="36dp"
         android:minWidth="56dp"
         android:text="Play"
+        android:textColor="#3EE6A0"
         android:textSize="11sp" />
 
     <Button
@@ -66,6 +67,6 @@
         android:layout_height="36dp"
         android:minWidth="56dp"
         android:text="Skip Ad"
-        android:textColor="#FFB300"
+        android:textColor="#F5B041"
         android:textSize="11sp" />
 </LinearLayout>
