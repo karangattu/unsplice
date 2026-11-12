@@ -24,6 +24,12 @@ class MatchFinderTest {
         val segments = MatchFinder.intraEpisode(first + second)
         assertEquals(listOf(Segment(200_000, 221_000), Segment(600_000, 621_000)), segments)
     }
+    @Test fun crossEpisodeWithPrecomputedMapMatchesStandardCrossEpisode() {
+        val current = (0..20).map { Fingerprint(it, 240_000L + it * 1_000) }
+        val other = (0..20).map { Fingerprint(it, 500_000L + it * 1_000) }
+        val map = other.groupBy { it.hash }
+        assertEquals(MatchFinder.crossEpisode(current, other), MatchFinder.crossEpisodeWithPrecomputedMap(current, map))
+    }
     @Test fun skipsOnlyWithinSegmentAndWhenEnabled() {
         val ads = listOf(Segment(1_000, 5_000))
         assertEquals(5_000L, skipTarget(1_000, ads, true))

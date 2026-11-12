@@ -31,18 +31,21 @@ object MatchFinder {
         }
     }
 
-    fun crossEpisode(current: List<Fingerprint>, other: List<Fingerprint>): List<Segment> {
-        val byHash = other.groupBy { it.hash }
+    fun crossEpisodeWithPrecomputedMap(current: List<Fingerprint>, byHash: Map<Int, List<Fingerprint>>): List<Segment> {
         val offsets = mutableMapOf<Long, MutableSet<Long>>()
         for (a in current) {
-            for (b in byHash[a.hash].orEmpty()) {
-                val second = a.timeMs / 1000
+            val matches = byHash[a.hash] ?: continue
+            val second = a.timeMs / 1000
+            for (b in matches) {
                 val offset = (a.timeMs - b.timeMs) / 1000
                 offsets.getOrPut(offset) { mutableSetOf() }.add(second)
             }
         }
         return extractSegments(offsets, minBeginMs = 180_000)
     }
+
+    fun crossEpisode(current: List<Fingerprint>, other: List<Fingerprint>): List<Segment> =
+        crossEpisodeWithPrecomputedMap(current, other.groupBy { it.hash })
 
     fun intraEpisode(fingerprints: List<Fingerprint>): List<Segment> {
         val byHash = fingerprints.groupBy { it.hash }

@@ -4,7 +4,7 @@
 #include <cmath>
 #include <complex>
 
-std::vector<FingerprintPoint> fingerprint(const std::vector<int16_t>& samples) {
+std::vector<FingerprintPoint> fingerprint(const int16_t* samples, size_t sampleCount) {
     constexpr int n = 512, hop = 256;
     constexpr double pi = 3.14159265358979323846;
     static const auto window = [] {
@@ -28,8 +28,15 @@ std::vector<FingerprintPoint> fingerprint(const std::vector<int16_t>& samples) {
         return values;
     }();
     struct Peak { int bin; int frame; };
-    std::vector<std::vector<Peak>> frames;
-    for (size_t base = 0; base + n <= samples.size(); base += hop) {
+    struct FramePeaks {
+        Peak peaks[4];
+        int count = 0;
+    };
+    if (sampleCount < n) return {};
+    size_t totalFrames = (sampleCount - n) / hop + 1;
+    std::vector<FramePeaks> frames(totalFrames);
+    const int edges[] = {19, 38, 77, 154, 256};
+    for (size_t f = 0, base = 0; f < totalFrames; ++f, base += hop) {
         std::array<std::complex<double>, n> fft;
         for (int i = 0; i < n; ++i) {
             fft[reversedBins[i]] = samples[base + i] * window[i];
@@ -44,23 +51,25 @@ std::vector<FingerprintPoint> fingerprint(const std::vector<int16_t>& samples) {
                 }
             }
         }
-        std::vector<Peak> peaks;
-        const int edges[] = {19, 38, 77, 154, 256};
+        auto& fp = frames[f];
         for (int band = 0; band < 4; ++band) {
             double sum = 0, maximum = 0; int best = edges[band];
             for (int k = edges[band]; k < edges[band + 1]; ++k) {
                 double power = std::norm(fft[k]); sum += power;
                 if (power > maximum) { maximum = power; best = k; }
             }
-            if (maximum > 1e7 && maximum > 3 * sum / (edges[band + 1] - edges[band])) peaks.push_back({best, static_cast<int>(frames.size())});
+            if (maximum > 1e7 && maximum > 3 * sum / (edges[band + 1] - edges[band])) {
+                fp.peaks[fp.count++] = {best, static_cast<int>(f)};
+            }
         }
-        frames.push_back(std::move(peaks));
     }
     std::vector<FingerprintPoint> result;
     for (size_t i = 0; i < frames.size(); i += 4) {
-        for (const auto& anchor : frames[i]) {
+        for (int a = 0; a < frames[i].count; ++a) {
+            const auto& anchor = frames[i].peaks[a];
             for (size_t j = i + 4; j < frames.size() && j <= i + 60; j += 8) {
-                for (const auto& target : frames[j]) {
+                for (int b = 0; b < frames[j].count; ++b) {
+                    const auto& target = frames[j].peaks[b];
                     uint32_t hash = (anchor.bin << 17) | (target.bin << 9) | (target.frame - anchor.frame);
                     result.push_back({hash, static_cast<uint32_t>(i * 32)});
                 }
@@ -68,4 +77,8 @@ std::vector<FingerprintPoint> fingerprint(const std::vector<int16_t>& samples) {
         }
     }
     return result;
+}
+
+std::vector<FingerprintPoint> fingerprint(const std::vector<int16_t>& samples) {
+    return fingerprint(samples.data(), samples.size());
 }

@@ -21,7 +21,6 @@ suspend fun processEpisode(
     val audio = File(directory, "audio")
     val partial = File(directory, "audio.part")
     val pcm = File(directory, "audio.pcm")
-    val chunk = File(directory, "chunk.pcm")
     val fingerprints = File(directory, "fingerprints.bin")
     val reporter = StepProgressReporter(episodeId, onProgress)
     try {
@@ -58,18 +57,23 @@ suspend fun processEpisode(
             } catch (_: Exception) {
             }
 
+            var foundChapterSponsors = false
             try {
                 // Chapters embedded in the file match its timeline. Feed chapters may predate dynamically inserted ads, so trust them less.
                 val embedded = audio.inputStream().buffered().use { readId3Chapters(it) }
                 val (chapters, confidence) = if (embedded.isNotEmpty()) embedded to 0.9f
                     else episode.chaptersUrl?.let { fetchJsonChapters(it) to 0.7f } ?: (emptyList<Chapter>() to 0f)
                 if (chapters.isNotEmpty()) writeChapters(File(directory, "chapters.tsv"), chapters)
-                saveNewSegments(dao, episode.id, sponsorSegments(chapters, durationMs(audio)), "chapter", confidence)
+                val segments = sponsorSegments(chapters, durationMs(audio))
+                if (segments.isNotEmpty()) {
+                    saveNewSegments(dao, episode.id, segments, "chapter", confidence)
+                    if (confidence >= 0.85f) foundChapterSponsors = true
+                }
             } catch (_: Exception) {
             }
 
             // Publisher markers already cover every inserted break, so skip the slow fingerprint pass.
-            if (decoded && !foundMarkers) try {
+            if (decoded && !foundMarkers && !foundChapterSponsors) try {
                 reporter.beginStage("Scanning for repeated ad audio")
                 val pcmBytes = pcm.length()
                 DataOutputStream(fingerprints.outputStream().buffered()).use { out ->
@@ -85,8 +89,12 @@ suspend fun processEpisode(
                                 size += n
                             }
                             if (size == 0) break
-                            chunk.outputStream().use { it.write(bytes, 0, size) }
-                            val points = NativeFingerprint.generateFingerprints(chunk.absolutePath).map { unpackFingerprint(it).let { fp -> fp.copy(timeMs = fp.timeMs + offset) } }
+                            val packed = NativeFingerprint.generateFingerprintsFromBytes(bytes, size)
+                            val points = ArrayList<Fingerprint>(packed.size)
+                            for (p in packed) {
+                                val fp = unpackFingerprint(p)
+                                points.add(Fingerprint(fp.hash, fp.timeMs + offset))
+                            }
                             for (fp in selectFingerprints(points)) { out.writeInt(fp.hash); out.writeLong(fp.timeMs) }
                             offset += size / 16L
                             readBytes += size
@@ -98,13 +106,18 @@ suspend fun processEpisode(
                     val current = readFingerprints(fingerprints)
                     saveNewSegments(dao, episode.id, MatchFinder.intraEpisode(current))
                     // Dynamically inserted ads repeat across every show in a network, so compare with the whole library.
-                    for (other in dao.episodesWithFingerprints()) {
-                        if (other.id == episode.id || other.fingerprintPath == null) continue
-                        val otherFile = File(other.fingerprintPath)
-                        if (!otherFile.isFile) continue
-                        val previous = readFingerprints(otherFile)
-                        saveNewSegments(dao, episode.id, MatchFinder.crossEpisode(current, previous))
-                        saveNewSegments(dao, other.id, MatchFinder.crossEpisode(previous, current))
+                    if (current.isNotEmpty()) {
+                        val currentByHash = current.groupBy { it.hash }
+                        for (other in dao.episodesWithFingerprints()) {
+                            if (other.id == episode.id || other.fingerprintPath == null) continue
+                            val otherFile = File(other.fingerprintPath)
+                            if (!otherFile.isFile) continue
+                            val previous = readFingerprints(otherFile)
+                            if (previous.isEmpty()) continue
+                            val otherByHash = previous.groupBy { it.hash }
+                            saveNewSegments(dao, episode.id, MatchFinder.crossEpisodeWithPrecomputedMap(current, otherByHash))
+                            saveNewSegments(dao, other.id, MatchFinder.crossEpisodeWithPrecomputedMap(previous, currentByHash))
+                        }
                     }
                     fingerprintPath = fingerprints.absolutePath
                 }
@@ -126,7 +139,6 @@ suspend fun processEpisode(
     } finally {
         EpisodeProgressTracker.clear(episodeId)
         pcm.delete()
-        chunk.delete()
     }
 }
 

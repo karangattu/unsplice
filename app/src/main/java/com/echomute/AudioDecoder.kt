@@ -35,7 +35,8 @@ fun decodeAudio(source: File, destination: File, targetRate: Int = 8000, onProgr
         var outputDone = false
         var noOutputCount = 0
         val info = MediaCodec.BufferInfo()
-        BufferedOutputStream(destination.outputStream()).use { output ->
+        var byteBuf = ByteArray(16384)
+        BufferedOutputStream(destination.outputStream(), 65536).use { output ->
             while (!outputDone) {
                 if (Thread.currentThread().isInterrupted) throw InterruptedException()
                 if (!inputDone) {
@@ -72,7 +73,8 @@ fun decodeAudio(source: File, destination: File, targetRate: Int = 8000, onProgr
                         buffer.asShortBuffer().get(samples)
                         val converted = resampler.convert(samples)
                         if (converted.isNotEmpty()) {
-                            val byteBuf = ByteArray(converted.size * 2)
+                            val needed = converted.size * 2
+                            if (byteBuf.size < needed) byteBuf = ByteArray(needed)
                             var idx = 0
                             for (sample in converted) {
                                 val s = sample.toInt()

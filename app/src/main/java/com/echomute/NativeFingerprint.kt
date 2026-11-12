@@ -5,4 +5,5 @@ fun unpackFingerprint(value: Long) = Fingerprint((value ushr 32).toInt(), value 
 object NativeFingerprint {
     init { System.loadLibrary("echomute") }
     external fun generateFingerprints(pcmFilePath: String): LongArray
+    external fun generateFingerprintsFromBytes(bytes: ByteArray, length: Int): LongArray
 }
