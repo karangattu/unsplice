@@ -37,7 +37,6 @@ suspend fun processEpisode(
         episode = episode.copy(status = "PROCESSING", localPath = audio.absolutePath, error = null)
         dao.saveEpisode(episode)
 
-        // Sources run from most to least trusted; a later segment that overlaps an earlier one is dropped.
         var fingerprintPath: String? = null
         var decoded = false
         try {
@@ -45,6 +44,10 @@ suspend fun processEpisode(
             decoded = try {
                 decodeAudio(audio, pcm) { done, total -> reporter.report(done, total) }
                 true
+            } catch (e: InterruptedException) {
+                throw e
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) { false }
 
             reporter.beginStage("Checking ad markers and chapters")
@@ -59,7 +62,6 @@ suspend fun processEpisode(
 
             var foundChapterSponsors = false
             try {
-                // Chapters embedded in the file match its timeline. Feed chapters may predate dynamically inserted ads, so trust them less.
                 val embedded = audio.inputStream().buffered().use { readId3Chapters(it) }
                 val (chapters, confidence) = if (embedded.isNotEmpty()) embedded to 0.9f
                     else episode.chaptersUrl?.let { fetchJsonChapters(it) to 0.7f } ?: (emptyList<Chapter>() to 0f)
@@ -72,7 +74,6 @@ suspend fun processEpisode(
             } catch (_: Exception) {
             }
 
-            // Publisher markers already cover every inserted break, so skip the slow fingerprint pass.
             if (decoded && !foundMarkers && !foundChapterSponsors) try {
                 reporter.beginStage("Scanning for repeated ad audio")
                 val pcmBytes = pcm.length()
@@ -105,7 +106,6 @@ suspend fun processEpisode(
                 if (fingerprints.isFile && fingerprints.length() > 0) {
                     val current = readFingerprints(fingerprints)
                     saveNewSegments(dao, episode.id, MatchFinder.intraEpisode(current))
-                    // Dynamically inserted ads repeat across every show in a network, so compare with the whole library.
                     if (current.isNotEmpty()) {
                         val currentByHash = current.groupBy { it.hash }
                         for (other in dao.episodesWithFingerprints()) {
@@ -142,7 +142,6 @@ suspend fun processEpisode(
     }
 }
 
-/** Saves segments that don't overlap ones already stored, so the first (most trusted) source wins. */
 private suspend fun saveNewSegments(dao: LibraryDao, episodeId: String, segments: List<Segment>, source: String = "repeat", confidence: Float = 0.6f) {
     val existing = dao.segments(episodeId)
     val fresh = segments.filter { segment -> existing.none { it.startMs < segment.endMs && segment.startMs < it.endMs } }
@@ -165,9 +164,10 @@ private fun durationMs(audio: File): Long? {
 }
 
 private fun readFingerprints(file: File): List<Fingerprint> {
-    val result = ArrayList<Fingerprint>()
-    DataInputStream(file.inputStream().buffered()).use { input ->
-        repeat((file.length() / 12).toInt()) { result.add(Fingerprint(input.readInt(), input.readLong())) }
+    val count = (file.length() / 12).toInt()
+    val result = ArrayList<Fingerprint>(count)
+    DataInputStream(file.inputStream().buffered(65536)).use { input ->
+        repeat(count) { result.add(Fingerprint(input.readInt(), input.readLong())) }
     }
     return result
 }
