@@ -7,7 +7,13 @@ import okhttp3.Request
 
 private val downloadClient = OkHttpClient()
 
+data class DownloadResult(val file: File, val finalUrl: String)
+
 fun downloadAudio(url: String, file: File, onProgress: (Long, Long) -> Unit = { _, _ -> }) {
+    downloadAudioWithUrl(url, file, onProgress)
+}
+
+fun downloadAudioWithUrl(url: String, file: File, onProgress: (Long, Long) -> Unit = { _, _ -> }): DownloadResult {
     require(httpUrl(url)) { "Invalid audio URL" }
     val validator = File(file.path + ".etag")
     val etag = validator.takeIf { it.isFile }?.readText()?.takeIf { it.startsWith('"') && it.endsWith('"') }
@@ -16,6 +22,7 @@ fun downloadAudio(url: String, file: File, onProgress: (Long, Long) -> Unit = { 
     if (size > 0) builder.header("Range", "bytes=$size-").header("If-Range", etag!!)
     downloadClient.newCall(builder.build()).execute().use { response ->
         require(response.isSuccessful) { "Download failed: HTTP ${response.code}" }
+        val finalUrl = response.request.url.toString()
         val append = response.code == 206 && size > 0
         if (response.code == 206) {
             require(append && response.header("Content-Range")?.startsWith("bytes $size-") == true) { "Invalid download range" }
@@ -43,5 +50,6 @@ fun downloadAudio(url: String, file: File, onProgress: (Long, Long) -> Unit = { 
                 }
             }
         }
+        return DownloadResult(file, finalUrl)
     }
 }

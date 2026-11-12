@@ -39,10 +39,14 @@ object DefaultSubscription {
                 existing?.copy(
                     title = item.title,
                     audioUrl = item.audioUrl,
-                    chaptersUrl = item.chaptersUrl,
+                    chaptersUrl = item.chaptersUrl ?: existing.chaptersUrl,
                     publishedAt = item.publishedAt,
                     description = item.description ?: existing.description,
-                    durationMs = existing.durationMs ?: item.durationMs
+                    durationMs = existing.durationMs ?: item.durationMs,
+                    transcriptUrl = item.transcriptUrl ?: existing.transcriptUrl,
+                    transcriptType = item.transcriptType ?: existing.transcriptType,
+                    rssDurationMs = item.durationMs ?: existing.rssDurationMs,
+                    pscChaptersJson = item.pscChaptersJson ?: existing.pscChaptersJson
                 ) ?: Episode(
                     id,
                     podcastId,
@@ -51,7 +55,11 @@ object DefaultSubscription {
                     chaptersUrl = item.chaptersUrl,
                     publishedAt = item.publishedAt,
                     description = item.description,
-                    durationMs = item.durationMs
+                    durationMs = item.durationMs,
+                    transcriptUrl = item.transcriptUrl,
+                    transcriptType = item.transcriptType,
+                    rssDurationMs = item.durationMs,
+                    pscChaptersJson = item.pscChaptersJson
                 )
             )
         }

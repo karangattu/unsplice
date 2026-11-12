@@ -1,10 +1,14 @@
 package com.echomute
 
 import java.io.File
+import org.json.JSONObject
 
 data class TranscriptWord(val startMs: Long, val endMs: Long, val text: String)
 
+data class TranscriptAdResult(val words: List<TranscriptWord>, val segments: List<Pair<Segment, Float>>)
+
 fun writeTranscript(file: File, words: List<TranscriptWord>) {
+    file.parentFile?.mkdirs()
     file.bufferedWriter().use { out -> for (w in words) out.write("${w.startMs}\t${w.endMs}\t${w.text}\n") }
 }
 
@@ -245,4 +249,154 @@ private fun merge(segments: List<ScoredSegment>): List<ScoredSegment> {
         } else result.add(s)
     }
     return result
+}
+
+private val cueTimingRegex = Regex("""((?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})""")
+private val inlineTagRegex = Regex("""<[^>]+>""")
+private val whitespaceRegex = Regex("""\s+""")
+
+private fun parseCueTimeMs(raw: String): Long? {
+    val norm = raw.trim().replace(',', '.')
+    val parts = norm.split(':')
+    if (parts.size !in 2..3) return null
+    return try {
+        when (parts.size) {
+            2 -> ((parts[0].toLong() * 60 + parts[1].toDouble()) * 1000.0).toLong()
+            else -> ((parts[0].toLong() * 3600 + parts[1].toLong() * 60 + parts[2].toDouble()) * 1000.0).toLong()
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun splitCueIntoWords(startMs: Long, endMs: Long, rawText: String, out: MutableList<TranscriptWord>) {
+    val cleaned = inlineTagRegex.replace(rawText, " ").trim()
+    if (cleaned.isEmpty()) return
+    val tokens = cleaned.split(whitespaceRegex).filter { it.isNotEmpty() }
+    if (tokens.isEmpty()) return
+    val safeEnd = maxOf(endMs, startMs + tokens.size * 50L)
+    val span = safeEnd - startMs
+    val totalChars = tokens.sumOf { it.length }.coerceAtLeast(1)
+    var cursor = startMs
+    var accChars = 0
+    for (i in tokens.indices) {
+        val wStart = cursor
+        accChars += tokens[i].length
+        val wEnd = if (i == tokens.lastIndex) safeEnd else startMs + (span * accChars) / totalChars
+        out.add(TranscriptWord(wStart, maxOf(wStart, wEnd), tokens[i]))
+        cursor = maxOf(wStart, wEnd)
+    }
+}
+
+fun parseJsonTranscript(json: String): List<TranscriptWord> {
+    if (json.isBlank()) return emptyList()
+    val segments = JSONObject(json).optJSONArray("segments") ?: return emptyList()
+    val out = ArrayList<TranscriptWord>()
+    for (i in 0 until segments.length()) {
+        val seg = segments.optJSONObject(i) ?: continue
+        val words = seg.optJSONArray("words")
+        if (words != null && words.length() > 0) {
+            for (j in 0 until words.length()) {
+                val w = words.optJSONObject(j) ?: continue
+                val text = w.optString("word").ifBlank { w.optString("text") }.trim()
+                if (text.isEmpty()) continue
+                val startSec = if (w.has("startTime")) w.optDouble("startTime", -1.0) else w.optDouble("start", -1.0)
+                if (startSec < 0.0) continue
+                val endSec = if (w.has("endTime")) w.optDouble("endTime", startSec) else w.optDouble("end", startSec)
+                val startMs = (startSec * 1000.0).toLong()
+                val endMs = maxOf(startMs, (endSec * 1000.0).toLong())
+                out.add(TranscriptWord(startMs, endMs, text))
+            }
+            continue
+        }
+        val body = seg.optString("body").ifBlank { seg.optString("text") }
+        if (body.isBlank()) continue
+        val startSec = if (seg.has("startTime")) seg.optDouble("startTime", -1.0) else seg.optDouble("start", -1.0)
+        if (startSec < 0.0) continue
+        val nextStart = segments.optJSONObject(i + 1)?.let { next ->
+            if (next.has("startTime")) next.optDouble("startTime", -1.0) else next.optDouble("start", -1.0)
+        }?.takeIf { it > startSec }
+        val endSec = when {
+            seg.has("endTime") -> seg.optDouble("endTime", startSec)
+            seg.has("end") -> seg.optDouble("end", startSec)
+            nextStart != null -> nextStart
+            else -> startSec + 2.0
+        }
+        splitCueIntoWords((startSec * 1000.0).toLong(), (endSec * 1000.0).toLong(), body, out)
+    }
+    return out
+}
+
+fun parseVttTranscript(vtt: String): List<TranscriptWord> = parseCueTranscript(vtt)
+
+fun parseSrtTranscript(srt: String): List<TranscriptWord> = parseCueTranscript(srt)
+
+private fun parseCueTranscript(raw: String): List<TranscriptWord> {
+    if (raw.isBlank()) return emptyList()
+    val lines = raw.removePrefix("\uFEFF").lineSequence().toList()
+    val out = ArrayList<TranscriptWord>()
+    var i = 0
+    while (i < lines.size) {
+        val line = lines[i].trim()
+        if (line.startsWith("NOTE") || line.startsWith("STYLE") || line.startsWith("REGION")) {
+            i++
+            while (i < lines.size && lines[i].isNotBlank()) i++
+            i++
+            continue
+        }
+        val match = cueTimingRegex.find(line)
+        if (match != null) {
+            val startMs = parseCueTimeMs(match.groupValues[1])
+            val endMs = parseCueTimeMs(match.groupValues[2])
+            i++
+            val body = StringBuilder()
+            while (i < lines.size && lines[i].isNotBlank()) {
+                if (body.isNotEmpty()) body.append(' ')
+                body.append(lines[i].trim())
+                i++
+            }
+            if (startMs != null && endMs != null && body.isNotEmpty()) {
+                splitCueIntoWords(startMs, endMs, body.toString(), out)
+            }
+        }
+        i++
+    }
+    return out
+}
+
+fun parseTranscript(content: String, type: String? = null): List<TranscriptWord> {
+    if (content.isBlank()) return emptyList()
+    val mime = type?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+    return when {
+        mime.contains("json") -> parseJsonTranscript(content)
+        mime.contains("vtt") -> parseVttTranscript(content)
+        mime.contains("subrip") || mime.contains("srt") -> parseSrtTranscript(content)
+        content.trimStart().startsWith("{") -> parseJsonTranscript(content)
+        content.trimStart().startsWith("WEBVTT") || content.contains("-->") -> parseCueTranscript(content)
+        else -> emptyList()
+    }
+}
+
+fun detectTranscriptAds(
+    transcriptContent: String,
+    type: String?,
+    actualDurationMs: Long?,
+    rssDurationMs: Long?,
+    filesDir: File? = null,
+    episodeId: String? = null
+): TranscriptAdResult {
+    val words = parseTranscript(transcriptContent, type)
+    if (words.isEmpty()) return TranscriptAdResult(emptyList(), emptyList())
+    if (filesDir != null && !episodeId.isNullOrBlank()) {
+        writeTranscript(File(filesDir, "episodes/$episodeId/transcript.tsv"), words)
+    }
+    val daiShifted = actualDurationMs != null && rssDurationMs != null &&
+        actualDurationMs > 0L && rssDurationMs > 0L &&
+        kotlin.math.abs(actualDurationMs - rssDurationMs) > 5_000L
+    val segments = sponsorReads(words).map { scored ->
+        val conf = if (daiShifted) minOf(transcriptConfidence(scored.score), TRANSCRIPT_WEAK_CONFIDENCE)
+        else transcriptConfidence(scored.score)
+        scored.segment to conf
+    }
+    return TranscriptAdResult(words, segments)
 }

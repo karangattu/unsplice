@@ -126,4 +126,60 @@ class TranscriptAdsTest {
             file.delete()
         }
     }
+
+    @Test fun parsesJsonVttAndSrtTranscripts() {
+        val jsonWords = """{"version":"1.0.0","segments":[{"startTime":1.0,"endTime":2.5,"body":"Welcome back","words":[{"word":"Welcome","startTime":1.0,"endTime":1.6},{"word":"back","startTime":1.7,"endTime":2.5}]},{"startTime":3.0,"endTime":5.0,"body":"Hello world"}]}"""
+        val parsedJson = parseTranscript(jsonWords, "application/json")
+        assertEquals(listOf("Welcome", "back", "Hello", "world"), parsedJson.map { it.text })
+        assertEquals(1_000L, parsedJson[0].startMs)
+        assertEquals(5_000L, parsedJson[3].endMs)
+
+        val vtt = """WEBVTT
+
+NOTE comment block
+
+00:00:05.000 --> 00:00:10.000 align:start
+<v Host>This episode is brought to you by Acme.
+
+00:12.000 --> 00:15.500
+Visit acme.com/podcast today."""
+        val parsedVtt = parseTranscript(vtt, "text/vtt")
+        assertTrue(parsedVtt.any { it.text == "brought" && it.startMs >= 5_000L && it.endMs <= 10_000L })
+        assertTrue(parsedVtt.any { it.text == "acme.com/podcast" && it.startMs >= 12_000L })
+
+        val srt = """1
+00:01:00,000 --> 00:01:04,500
+Use code <b>SHOW</b> at checkout."""
+        val parsedSrt = parseTranscript(srt, "application/x-subrip")
+        assertEquals(listOf("Use", "code", "SHOW", "at", "checkout."), parsedSrt.map { it.text })
+        assertEquals(60_000L, parsedSrt.first().startMs)
+        assertEquals(64_500L, parsedSrt.last().endMs)
+    }
+
+    @Test fun detectsTranscriptAdsWritesTsvAndCapsConfidenceWhenDaiShifted() {
+        val filesDir = kotlin.io.path.createTempDirectory("unsplice-transcript").toFile()
+        try {
+            val vtt = """WEBVTT
+
+00:00:00.000 --> 00:00:04.000
+Hello everyone welcome back to the podcast.
+
+00:01:00.000 --> 00:01:12.000
+This episode is brought to you by Acme Mattress. Go to acme.com/podcast and use code PODCAST for twenty percent off your first order.
+
+00:02:00.000 --> 00:02:05.000
+Back to the show now."""
+            val unshifted = detectTranscriptAds(vtt, "text/vtt", 600_000L, 600_000L, filesDir, "ep-1")
+            assertTrue(java.io.File(filesDir, "episodes/ep-1/transcript.tsv").isFile)
+            assertEquals(1, unshifted.segments.size)
+            assertEquals(TRANSCRIPT_CONFIDENCE, unshifted.segments[0].second, 0.0001f)
+
+            val shifted = detectTranscriptAds(vtt, "text/vtt", 660_000L, 600_000L)
+            assertEquals(1, shifted.segments.size)
+            assertTrue(shifted.segments[0].second <= TRANSCRIPT_WEAK_CONFIDENCE)
+            assertTrue(shifted.segments[0].second < AUTO_SKIP_CONFIDENCE)
+        } finally {
+            filesDir.deleteRecursively()
+        }
+    }
 }

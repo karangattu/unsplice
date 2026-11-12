@@ -41,7 +41,11 @@ data class Episode(
     @ColumnInfo(defaultValue = "0") val finished: Boolean = false,
     val durationMs: Long? = null,
     val description: String? = null,
-    @ColumnInfo(defaultValue = "0") val starred: Boolean = false
+    @ColumnInfo(defaultValue = "0") val starred: Boolean = false,
+    val transcriptUrl: String? = null,
+    val transcriptType: String? = null,
+    val rssDurationMs: Long? = null,
+    val pscChaptersJson: String? = null
 )
 
 /** An episode whose audio has been downloaded. */
@@ -87,7 +91,7 @@ interface LibraryDao {
     @Query("DELETE FROM episodes WHERE id = :id") suspend fun deleteEpisode(id: String)
 }
 
-@Database(entities = [Podcast::class, Episode::class, AdSegment::class], version = 6, exportSchema = false)
+@Database(entities = [Podcast::class, Episode::class, AdSegment::class], version = 7, exportSchema = false)
 abstract class LibraryDatabase : RoomDatabase() {
     abstract fun library(): LibraryDao
     companion object {
@@ -127,9 +131,17 @@ abstract class LibraryDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE episodes ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
             }
         }
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE episodes ADD COLUMN transcriptUrl TEXT")
+                db.execSQL("ALTER TABLE episodes ADD COLUMN transcriptType TEXT")
+                db.execSQL("ALTER TABLE episodes ADD COLUMN rssDurationMs INTEGER")
+                db.execSQL("ALTER TABLE episodes ADD COLUMN pscChaptersJson TEXT")
+            }
+        }
         @Volatile private var instance: LibraryDatabase? = null
         fun get(context: Context): LibraryDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, "unsplice.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
+            instance ?: Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, "unsplice.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build().also { instance = it }
         }
     }
 }

@@ -57,6 +57,37 @@ class DefaultSubscriptionTest {
     }
 
     @Test
+    fun persistsTranscriptPscAndRssDurationDistinctFromPlayerDuration() = runBlocking {
+        val dao = FakeDao()
+        val url = "https://example.org/feed"
+        val id = stableHash(url)
+        val epId = stableHash("$id\u0000ep1")
+        dao.saveEpisode(Episode(epId, id, "Ep 1", "https://example.org/1.mp3", durationMs = 1_920_000L))
+        DefaultSubscription.subscribeFeed(url, dao) {
+            Feed(
+                "Show",
+                listOf(
+                    FeedEpisode(
+                        id = "ep1",
+                        title = "Ep 1",
+                        audioUrl = "https://example.org/1.mp3",
+                        durationMs = 1_800_000L,
+                        transcriptUrl = "https://example.org/1.vtt",
+                        transcriptType = "text/vtt",
+                        pscChaptersJson = """{"chapters":[{"startTime":0,"title":"Intro"}]}"""
+                    )
+                )
+            )
+        }
+        val saved = dao.episode(epId)!!
+        assertEquals(1_920_000L, saved.durationMs)
+        assertEquals(1_800_000L, saved.rssDurationMs)
+        assertEquals("https://example.org/1.vtt", saved.transcriptUrl)
+        assertEquals("text/vtt", saved.transcriptType)
+        assertNotNull(saved.pscChaptersJson)
+    }
+
+    @Test
     fun backfillsExistingArtworkAndRetriesFailuresWithoutRepeatedEmptyResults() = runBlocking {
         val dao = FakeDao()
         val prefs = FakePrefs()

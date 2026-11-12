@@ -43,4 +43,43 @@ class FeedParserTest {
         assertEquals(3_723_000L, episodes[0].durationMs)
         assertEquals(180_000L, episodes[1].durationMs)
     }
+
+    @Test fun parsesTranscriptPriorityAndPodloveChapters() {
+        val xml = """<rss xmlns:podcast="https://podcastindex.org/namespace/1.0" xmlns:psc="http://podlove.org/simple-chapters">
+            <channel><title>Show</title>
+            <item>
+                <title>Ep 1</title><guid>1</guid>
+                <enclosure url="https://example.org/1.mp3" type="audio/mpeg"/>
+                <podcast:transcript url="https://example.org/1.srt" type="application/x-subrip" language="en"/>
+                <podcast:transcript url="https://example.org/1-es.json" type="application/json" language="es"/>
+                <podcast:transcript url="https://example.org/1-en.json" type="application/json" language="en-US"/>
+                <psc:chapters version="1.2">
+                    <psc:chapter start="00:00:00" title="Intro"/>
+                    <psc:chapter start="00:02:00.500" title="Sponsor: Acme" href="https://acme.com/pod"/>
+                    <psc:chapter start="00:03:30" title="Topic"/>
+                </psc:chapters>
+            </item></channel></rss>"""
+        val ep = parseFeed(xml.byteInputStream()).episodes.single()
+        assertEquals("https://example.org/1-en.json", ep.transcriptUrl)
+        assertEquals("application/json", ep.transcriptType)
+        val psc = parseJsonChapters(ep.pscChaptersJson!!)
+        assertEquals(3, psc.size)
+        assertEquals(listOf(Segment(120_500L, 210_000L)), sponsorSegments(psc, 600_000L))
+    }
+
+    @Test fun extractsShowNoteTimestampedChaptersWithoutProseFalsePositives() {
+        val notes = """
+            Episode summary here.
+            00:00 Cold open
+            12:30 - Sponsor: BetterHelp
+            14:15 Main interview
+            1:02:00 Outro
+        """.trimIndent()
+        val chapters = extractTimestampedChapters(notes, durationMs = 4_000_000L)
+        assertEquals(4, chapters.size)
+        assertEquals(listOf(Segment(750_000L, 855_000L)), sponsorSegments(chapters, 4_000_000L))
+
+        val proseOnly = "In this episode we talk about the goal at 12:30 in the second half."
+        assertTrue(extractTimestampedChapters(proseOnly, 3_600_000L).isEmpty())
+    }
 }

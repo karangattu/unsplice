@@ -78,4 +78,48 @@ class ChaptersTest {
             file.delete()
         }
     }
+
+    @Test fun parsesJsonTocUrlAndDetectsHiddenSponsorUrls() {
+        val json = """{"version":"1.2.0","chapters":[
+            {"startTime":0,"title":"Intro","toc":true},
+            {"startTime":60,"endTime":90,"title":"Acme","toc":false,"url":"https://acme.com/podcast?utm_source=pod"},
+            {"startTime":120,"endTime":150,"title":"Bonus chart","toc":false,"url":"https://example.org/chart.png"}
+        ]}"""
+        val chapters = parseJsonChapters(json)
+        assertEquals(3, chapters.size)
+        assertFalse(chapters[1].toc)
+        assertEquals("https://acme.com/podcast?utm_source=pod", chapters[1].url)
+        assertEquals(listOf(Segment(60_000, 90_000)), sponsorSegments(chapters, 300_000))
+        assertEquals(0.9f, sponsorConfidence(chapters[1], 0.7f), 0.0001f)
+    }
+
+    @Test fun parsesPodloveChaptersAndTrustedDurationDelta() {
+        val xml = """<psc:chapters xmlns:psc="http://podlove.org/simple-chapters" version="1.2">
+            <psc:chapter start="00:00:00.000" title="Opening"/>
+            <psc:chapter start="00:05:30.500" title="Sponsor break" href="https://example.com/sponsor"/>
+            <psc:chapter start="00:07:00" title="Main interview"/>
+        </psc:chapters>"""
+        val chapters = parsePodloveChapters(xml)
+        assertEquals(3, chapters.size)
+        assertEquals(330_500L, chapters[1].startMs)
+        assertEquals("https://example.com/sponsor", chapters[1].url)
+        assertEquals(listOf(Segment(330_500L, 420_000L)), sponsorSegments(chapters, 900_000L))
+
+        assertTrue(hasTrustedJsonChapters(1_000_000L, 1_003_000L))
+        assertFalse(hasTrustedJsonChapters(1_060_000L, 1_000_000L))
+        assertFalse(hasTrustedJsonChapters(null, 1_000_000L))
+    }
+
+    @Test fun readsAcastTxxxAdBreakCuesFromId3Header() {
+        val txxxBody = ByteArrayOutputStream().apply {
+            write(3)
+            write("AIS_AD_BREAK_1".toByteArray())
+            write(0)
+            write("368648,0;AIS_AD_BREAK_PRE=00:00:00:000".toByteArray())
+        }.toByteArray()
+        val bytes = tag(4, frame("TXXX", txxxBody, 4), chap("c0", 0, 30_000, "Intro", 4))
+        val meta = readId3Metadata(bytes.inputStream())
+        assertEquals(1, meta.chapters.size)
+        assertEquals(listOf(0L, 368_648L), meta.adBreakCuesMs)
+    }
 }

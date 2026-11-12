@@ -10,7 +10,25 @@ class AdMarkersTest {
     @Test fun findsOmnyClipBehindRedirects() {
         val url = "https://podtrac.com/pts/redirect.mp3/traffic.omny.fm/d/clips/98a2599f-cd9b-4f2a-9be4-b22c00e585f2/cf386c8a-37eb-415e-abd5-b32f0124a981/cdaf596b-aad0-4452-80ad-b4f001425984/audio.mp3?utm_source=Podcast"
         assertEquals(OmnyClip("98a2599f-cd9b-4f2a-9be4-b22c00e585f2", "cdaf596b-aad0-4452-80ad-b4f001425984"), omnyClip(url))
+        val contentUrl = "https://www.omnycontent.com/d/clips/98a2599f-cd9b-4f2a-9be4-b22c00e585f2/cf386c8a-37eb-415e-abd5-b32f0124a981/cdaf596b-aad0-4452-80ad-b4f001425984/audio.mp3"
+        assertEquals(OmnyClip("98a2599f-cd9b-4f2a-9be4-b22c00e585f2", "cdaf596b-aad0-4452-80ad-b4f001425984"), omnyClip(contentUrl))
+        val studioUrl = "https://omnystudio.com/d/clips/98a2599f-cd9b-4f2a-9be4-b22c00e585f2/cf386c8a-37eb-415e-abd5-b32f0124a981/cdaf596b-aad0-4452-80ad-b4f001425984/audio.mp3"
+        assertEquals(OmnyClip("98a2599f-cd9b-4f2a-9be4-b22c00e585f2", "cdaf596b-aad0-4452-80ad-b4f001425984"), omnyClip(studioUrl))
         assertNull(omnyClip("https://example.org/episode.mp3"))
+    }
+
+    @Test fun parsesClipMarkersDurationAndInMemoryEnvelope() {
+        val clip = """{"DurationSeconds":3600.5,"WaveformUrl":"https://www.omnycontent.com/waveform","AdMarkers":[{"Offset":"00:10:00","AdMarkerType":"MidRoll"}]}"""
+        val info = parseOmnyClip(clip)
+        assertEquals(OmnyAdInfo(listOf(600_000L), "https://www.omnycontent.com/waveform", 3_600_500L), info)
+        assertTrue(info?.hasMarkers == true)
+
+        val samples = ShortArray(8000) { if (it == 50) (-32768).toShort() else if (it == 2000) 700 else 15 }
+        val env = pcmEnvelope(samples, sampleRate = 8000, rate = 5)
+        assertEquals(5, env.size)
+        assertEquals(32768, env[0])
+        assertEquals(700, env[1])
+        assertEquals(15, env[2])
     }
 
     @Test fun parsesClipMarkersAndWaveform() {

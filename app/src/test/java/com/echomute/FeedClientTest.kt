@@ -31,4 +31,12 @@ class FeedClientTest {
             assertEquals("Discovered", feed.title)
         }
     }
+
+    @Test fun fetchesTranscriptText() {
+        MockWebServer().use { server ->
+            val vtt = "WEBVTT\n\n00:00.000 --> 00:02.000\nHello world"
+            server.enqueue(MockResponse().setBody(vtt))
+            assertEquals(vtt, fetchTranscript(server.url("/transcript.vtt").toString()))
+        }
+    }
 }

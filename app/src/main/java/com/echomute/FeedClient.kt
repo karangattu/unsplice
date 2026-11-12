@@ -60,6 +60,8 @@ fun fetchFeed(url: String): Feed {
 
 fun fetchJsonChapters(url: String): List<Chapter> = parseJsonChapters(fetchText(url, 1024 * 1024L))
 
+fun fetchTranscript(url: String): String = fetchText(url, 8 * 1024 * 1024L)
+
 fun fetchOmnyAdInfo(clip: OmnyClip): OmnyAdInfo? = parseOmnyClip(fetchText(clip.apiUrl, 1024 * 1024L))
 
 fun fetchOmnyWaveform(url: String): Pair<Int, IntArray> = parseOmnyWaveform(fetchText(url, 8 * 1024 * 1024L))

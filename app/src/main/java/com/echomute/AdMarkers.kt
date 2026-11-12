@@ -15,21 +15,28 @@ data class OmnyClip(val organizationId: String, val clipId: String) {
     val apiUrl get() = "https://api.omny.fm/orgs/$organizationId/clips/$clipId"
 }
 
-data class OmnyAdInfo(val markersMs: List<Long>, val waveformUrl: String)
+data class OmnyAdInfo(val markersMs: List<Long>, val waveformUrl: String, val durationMs: Long? = null) {
+    val hasMarkers: Boolean get() = markersMs.isNotEmpty()
+}
 
 data class AlignedBreak(val segment: Segment, val match: Double)
 
-private val omnyAudioPath = Regex("""omny\.fm/d/clips/([0-9a-f-]{36})/[0-9a-f-]{36}/([0-9a-f-]{36})/""")
+private val omnyAudioPath = Regex("""(?:omny\.fm|omnycontent\.com|omnystudio\.com)/d/clips/([0-9a-fA-F-]{36})/[0-9a-fA-F-]{36}/([0-9a-fA-F-]{36})/""")
 
 fun omnyClip(audioUrl: String): OmnyClip? =
     omnyAudioPath.find(audioUrl)?.let { OmnyClip(it.groupValues[1], it.groupValues[2]) }
+
+fun fetchOmnyClip(audioUrl: String): OmnyAdInfo? = omnyClip(audioUrl)?.let(::fetchOmnyAdInfo)
 
 fun parseOmnyClip(json: String): OmnyAdInfo? {
     val clip = JSONObject(json)
     val waveform = clip.optString("WaveformUrl").takeIf { httpUrl(it) } ?: return null
     val markers = clip.optJSONArray("AdMarkers") ?: return null
     val offsets = (0 until markers.length()).mapNotNull { markers.optJSONObject(it)?.optString("Offset")?.let(::parseOffsetMs) }
-    return if (offsets.isEmpty()) null else OmnyAdInfo(offsets.sorted(), waveform)
+    if (offsets.isEmpty()) return null
+    val durationSec = clip.optDouble("DurationSeconds", -1.0)
+    val durationMs = if (durationSec > 0.0) (durationSec * 1000.0).toLong() else null
+    return OmnyAdInfo(offsets.sorted(), waveform, durationMs)
 }
 
 /** Parses Omny's waveform JSON: {"SR": values per second, "D": [base64 bytes per channel]}. */
@@ -68,6 +75,24 @@ fun pcmEnvelope(pcm: File, rate: Int): IntArray {
         }
     }
     return result.toIntArray()
+}
+
+fun pcmEnvelope(samples: ShortArray, sampleRate: Int, rate: Int, count: Int = samples.size): IntArray {
+    if (count <= 0 || sampleRate <= 0 || rate <= 0) return IntArray(0)
+    val step = (sampleRate / rate).coerceAtLeast(1)
+    val n = count / step
+    val out = IntArray(n)
+    for (idx in 0 until n) {
+        val base = idx * step
+        var peak = 0
+        for (j in 0 until step) {
+            val v = samples[base + j].toInt()
+            val abs = if (v < 0) -v else v
+            if (abs > peak) peak = abs
+        }
+        out[idx] = peak
+    }
+    return out
 }
 
 /**

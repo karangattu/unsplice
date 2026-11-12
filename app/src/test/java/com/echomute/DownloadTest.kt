@@ -44,6 +44,23 @@ class DownloadTest {
             } finally { file.delete(); File(file.path + ".etag").delete() }
         }
     }
+
+    @Test fun returnsFinalRedirectedUrl() {
+        MockWebServer().use { server ->
+            val targetUrl = server.url("/d/clips/org/prog/clip/audio.mp3").toString()
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", targetUrl))
+            server.enqueue(MockResponse().setBody("audio-bytes"))
+            val file = File.createTempFile("unsplice-redirect", ".part")
+            try {
+                val result = downloadAudioWithUrl(server.url("/redirect.mp3").toString(), file)
+                assertEquals(targetUrl, result.finalUrl)
+                assertEquals("audio-bytes", file.readText())
+            } finally {
+                file.delete()
+                File(file.path + ".etag").delete()
+            }
+        }
+    }
 }
 
 class ResumeSafetyTest {
