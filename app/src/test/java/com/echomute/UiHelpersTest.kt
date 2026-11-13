@@ -76,4 +76,21 @@ class UiHelpersTest {
         assertEquals("Ad break detected", formatAdRemainingLabel(seg, 45_000L))
         assertEquals("Ad break detected", formatAdRemainingLabel(seg, 50_000L))
     }
+
+    @Test fun selectingUpcomingEpisodeSwapsItToFrontAndKeepsCurrentNext() {
+        val queue = mutableListOf("a", "b", "c")
+        val move = queueSelectionMove(currentIndex = 0, targetIndex = 1)
+        assertEquals(1 to 0, move)
+        queue.add(move!!.second, queue.removeAt(move.first))
+        assertEquals(listOf("b", "a", "c"), queue)
+
+        val later = mutableListOf("old", "a", "b", "c")
+        val jump = queueSelectionMove(currentIndex = 1, targetIndex = 3)!!
+        later.add(jump.second, later.removeAt(jump.first))
+        assertEquals(listOf("old", "c", "a", "b"), later)
+
+        assertNull(queueSelectionMove(currentIndex = 1, targetIndex = 1))
+        assertNull(queueSelectionMove(currentIndex = 2, targetIndex = 0))
+        assertNull(queueSelectionMove(currentIndex = -1, targetIndex = 0))
+    }
 }

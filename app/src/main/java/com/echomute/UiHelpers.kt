@@ -56,6 +56,9 @@ fun formatQueueSummary(upcomingCount: Int): String = when (upcomingCount) {
     else -> "$upcomingCount episodes in queue"
 }
 
+fun queueSelectionMove(currentIndex: Int, targetIndex: Int): Pair<Int, Int>? =
+    if (currentIndex >= 0 && targetIndex > currentIndex) targetIndex to currentIndex else null
+
 fun formatAdSegmentLabel(source: String): String = when (source) {
     "marker" -> "Ad break"
     "chapter" -> "Chapter"

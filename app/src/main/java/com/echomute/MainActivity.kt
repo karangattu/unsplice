@@ -613,8 +613,11 @@ private fun UnspliceApp() {
                             podcastsByTitle = podcastsByTitle,
                             onPlayItem = { item ->
                                 controller?.let { player ->
-                                    val target = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == item.mediaId }
-                                    if (target != null) {
+                                    val found = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == item.mediaId }
+                                    if (found != null) {
+                                        val move = queueSelectionMove(player.currentMediaItemIndex, found)
+                                        if (move != null) player.moveMediaItem(move.first, move.second)
+                                        val target = move?.second ?: found
                                         if (target != player.currentMediaItemIndex || player.playbackState == Player.STATE_ENDED) player.seekTo(target, 0)
                                         if (player.playbackState == Player.STATE_IDLE) player.prepare()
                                         player.play()
