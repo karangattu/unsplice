@@ -266,8 +266,18 @@ class EpisodeProcessorTest {
             try {
                 val dl = downloadAudioWithUrl(server.url("/podtrac/ep.mp3").toString(), dest)
                 assertEquals(targetUrl, dl.finalUrl)
+                assertEquals(listOf(server.url("/podtrac/ep.mp3").toString(), targetUrl), dl.redirectUrls)
                 val omnyCdnUrl = "https://www.omnycontent.com$redirectedPath"
                 assertNotNull(omnyClip(omnyCdnUrl))
+
+                val fallbackTarget = resolveOmnyTarget(
+                    candidateUrls = listOf("https://cdn.example.org/variant.mp3", omnyCdnUrl),
+                    probedDurationMs = 700_000L,
+                    clipFetcher = { url -> if (omnyClip(url) != null) OmnyAdInfo(listOf(100_000L), "https://omny.fm/w", durationMs = 600_000L) else null },
+                    waveformFetcher = { 5 to IntArray(600 * 5) }
+                )
+                assertNotNull(fallbackTarget)
+                assertEquals(5, fallbackTarget!!.rate)
 
                 val markersTarget = resolveOmnyTarget(
                     resolvedUrl = omnyCdnUrl,

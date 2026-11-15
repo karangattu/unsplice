@@ -21,7 +21,10 @@ data class OmnyAdInfo(val markersMs: List<Long>, val waveformUrl: String, val du
 
 data class AlignedBreak(val segment: Segment, val match: Double)
 
-private val omnyAudioPath = Regex("""(?:omny\.fm|omnycontent\.com|omnystudio\.com)/d/clips/([0-9a-fA-F-]{36})/[0-9a-fA-F-]{36}/([0-9a-fA-F-]{36})/""")
+private val omnyAudioPath = Regex(
+    """(?:(?:omny\.fm|omnycontent\.com|omnystudio\.com)/d/clips/|tritondigital\.com(?:/|%2[fF]))([0-9a-fA-F-]{36})(?:/|%2[fF])[0-9a-fA-F-]{36}(?:/|%2[fF])([0-9a-fA-F-]{36})(?:/|%2[fF])""",
+    RegexOption.IGNORE_CASE
+)
 
 fun omnyClip(audioUrl: String): OmnyClip? =
     omnyAudioPath.find(audioUrl)?.let { OmnyClip(it.groupValues[1], it.groupValues[2]) }

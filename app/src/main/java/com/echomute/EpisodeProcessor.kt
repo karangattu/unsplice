@@ -145,6 +145,19 @@ internal fun resolveChaptersAndMetadata(
 }
 
 internal fun resolveOmnyTarget(
+    candidateUrls: List<String>,
+    probedDurationMs: Long?,
+    clipFetcher: (String) -> OmnyAdInfo? = ::fetchOmnyClip,
+    waveformFetcher: (String) -> Pair<Int, IntArray> = ::fetchOmnyWaveform
+): MarkerTarget? {
+    for (url in candidateUrls.distinct()) {
+        val target = resolveOmnyTarget(url, probedDurationMs, clipFetcher, waveformFetcher)
+        if (target != null) return target
+    }
+    return null
+}
+
+internal fun resolveOmnyTarget(
     resolvedUrl: String,
     probedDurationMs: Long?,
     clipFetcher: (String) -> OmnyAdInfo? = ::fetchOmnyClip,
@@ -152,6 +165,20 @@ internal fun resolveOmnyTarget(
 ): MarkerTarget? {
     val info = clipFetcher(resolvedUrl) ?: return null
     return markerTarget(info.markersMs, info.waveformUrl, info.durationMs, probedDurationMs, waveformFetcher)
+}
+
+/** ART19 hides its ad breaks in a separate episode JSON instead of the RSS feed. */
+internal fun resolveArt19Target(
+    candidateUrls: List<String>,
+    probedDurationMs: Long?,
+    clipFetcher: (String) -> Art19AdInfo? = ::fetchArt19Clip,
+    waveformFetcher: (String) -> Pair<Int, IntArray> = ::fetchArt19Waveform
+): MarkerTarget? {
+    for (url in candidateUrls.distinct()) {
+        val target = resolveArt19Target(url, probedDurationMs, clipFetcher, waveformFetcher)
+        if (target != null) return target
+    }
+    return null
 }
 
 /** ART19 hides its ad breaks in a separate episode JSON instead of the RSS feed. */
@@ -196,7 +223,7 @@ suspend fun processEpisode(
     val fingerprints = File(directory, "fingerprints.bin")
     val reporter = StepProgressReporter(episodeId, onProgress)
     try {
-        var resolvedUrl = episode.audioUrl
+        val candidateUrls = mutableListOf(episode.audioUrl)
         if (!audio.isFile) {
             reporter.beginStage("Downloading episode")
             episode = episode.copy(status = "DOWNLOADING", error = null)
@@ -204,7 +231,8 @@ suspend fun processEpisode(
             val downloadResult = downloadAudioWithUrl(episode.audioUrl, partial) { done, total ->
                 reporter.report(done, total, includeBytes = true)
             }
-            resolvedUrl = downloadResult.finalUrl
+            candidateUrls.addAll(downloadResult.redirectUrls)
+            candidateUrls.add(downloadResult.finalUrl)
             check(partial.renameTo(audio)) { "Could not save downloaded audio" }
             File(partial.path + ".etag").delete()
         }
@@ -238,12 +266,12 @@ suspend fun processEpisode(
 
             val markerTarget = if (!foundChapterSponsors) {
                 val omny = try {
-                    resolveOmnyTarget(resolvedUrl, probedDurationMs)
+                    resolveOmnyTarget(candidateUrls, probedDurationMs)
                 } catch (_: Exception) {
                     null
                 }
                 omny ?: try {
-                    resolveArt19Target(resolvedUrl, probedDurationMs)
+                    resolveArt19Target(candidateUrls, probedDurationMs)
                 } catch (_: Exception) {
                     null
                 }

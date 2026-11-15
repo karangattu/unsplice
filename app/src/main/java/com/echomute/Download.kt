@@ -7,7 +7,11 @@ import okhttp3.Request
 
 private val downloadClient = OkHttpClient()
 
-data class DownloadResult(val file: File, val finalUrl: String)
+data class DownloadResult(
+    val file: File,
+    val finalUrl: String,
+    val redirectUrls: List<String> = listOf(finalUrl)
+)
 
 fun downloadAudio(url: String, file: File, onProgress: (Long, Long) -> Unit = { _, _ -> }) {
     downloadAudioWithUrl(url, file, onProgress)
@@ -22,6 +26,11 @@ fun downloadAudioWithUrl(url: String, file: File, onProgress: (Long, Long) -> Un
     if (size > 0) builder.header("Range", "bytes=$size-").header("If-Range", etag!!)
     downloadClient.newCall(builder.build()).execute().use { response ->
         require(response.isSuccessful) { "Download failed: HTTP ${response.code}" }
+        val redirectUrls = generateSequence(response) { it.priorResponse }
+            .map { it.request.url.toString() }
+            .toList()
+            .asReversed()
+            .distinct()
         val finalUrl = response.request.url.toString()
         val append = response.code == 206 && size > 0
         if (response.code == 206) {
@@ -50,6 +59,6 @@ fun downloadAudioWithUrl(url: String, file: File, onProgress: (Long, Long) -> Un
                 }
             }
         }
-        return DownloadResult(file, finalUrl)
+        return DownloadResult(file, finalUrl, redirectUrls)
     }
 }

@@ -29,11 +29,13 @@ class Art19AdsTest {
 
     private val enclosureUrl = "https://dts.podtrac.com/redirect.mp3/prfx.byspotify.com/e/claritaspod.com/measure/arttrk.com/p/PDPN1/pscrb.fm/rss/p/rss.art19.com/episodes/05664478-169e-4414-b6cb-fcdc24be3794.mp3?rss_browser=abc"
     private val resolvedUrl = "https://rss.art19.com/external/episodes/05664478-169e-4414-b6cb-fcdc24be3794.mp3?rss_browser=abc"
+    private val cdnRedirectUrl = "https://content.production.cdn.art19.com/validation=1794842438,763b7236-c7a7-5bf4-846f-867dc1de552c,29d2P59_4ce_sM5b5l6D537B5ac/episodes/05664478-169e-4414-b6cb-fcdc24be3794/1bce648739cb1cd01fa9d52d2568db55be43c32550d4cc3a9cfbbef761bf979f66dd3f4f15f8772e21686fc1d53ff9618b2bd42516e289b9d68e2386b0f5e84f/postfri.mp3"
     private val clipUrl = "https://rss.art19.com/episodes/05664478-169e-4414-b6cb-fcdc24be3794.json"
 
     @Test fun buildsTheClipUrlFromEitherAudioUrl() {
         assertEquals(clipUrl, art19ClipUrl(enclosureUrl))
         assertEquals(clipUrl, art19ClipUrl(resolvedUrl))
+        assertEquals(clipUrl, art19ClipUrl(cdnRedirectUrl))
         assertNull(art19ClipUrl("https://example.com/episodes/05664478-169e-4414-b6cb-fcdc24be3794.mp3"))
     }
 
@@ -126,5 +128,15 @@ class Art19AdsTest {
                 waveformFetcher = { throw AssertionError("waveform should not be fetched") }
             )
         )
+
+        val candidateTarget = requireNotNull(
+            resolveArt19Target(
+                candidateUrls = listOf("https://cdn.example.com/opaque.mp3", enclosureUrl),
+                probedDurationMs = 700_000L,
+                clipFetcher = { url -> if (art19ClipUrl(url) != null) info else null },
+                waveformFetcher = waveform
+            )
+        )
+        assertEquals(ART19_ENVELOPE_RATE, candidateTarget.rate)
     }
 }

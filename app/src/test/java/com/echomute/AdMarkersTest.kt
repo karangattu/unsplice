@@ -14,6 +14,8 @@ class AdMarkersTest {
         assertEquals(OmnyClip("98a2599f-cd9b-4f2a-9be4-b22c00e585f2", "cdaf596b-aad0-4452-80ad-b4f001425984"), omnyClip(contentUrl))
         val studioUrl = "https://omnystudio.com/d/clips/98a2599f-cd9b-4f2a-9be4-b22c00e585f2/cf386c8a-37eb-415e-abd5-b32f0124a981/cdaf596b-aad0-4452-80ad-b4f001425984/audio.mp3"
         assertEquals(OmnyClip("98a2599f-cd9b-4f2a-9be4-b22c00e585f2", "cdaf596b-aad0-4452-80ad-b4f001425984"), omnyClip(studioUrl))
+        val tritonUrl = "https://iheartmedia.pdn.tritondigital.com/v1/variant/e7bfe717-123e-529d-b106-3b2ff90b2775.mp3?si=019d9212&fu=https%3A%2F%2Fiheartmedia.pdn.tritondigital.com%2F98a2599f-cd9b-4f2a-9be4-b22c00e585f2%2Fcf386c8a-37eb-415e-abd5-b32f0124a981%2Fcdaf596b-aad0-4452-80ad-b4f001425984%2Fpublished-1064415693.mp3"
+        assertEquals(OmnyClip("98a2599f-cd9b-4f2a-9be4-b22c00e585f2", "cdaf596b-aad0-4452-80ad-b4f001425984"), omnyClip(tritonUrl))
         assertNull(omnyClip("https://example.org/episode.mp3"))
     }
 

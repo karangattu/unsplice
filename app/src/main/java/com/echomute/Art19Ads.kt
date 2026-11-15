@@ -16,14 +16,14 @@ const val ART19_ENVELOPE_RATE = 16
 data class Art19AdInfo(val markersMs: List<Long>, val waveformUrl: String, val cleanDurationMs: Long?)
 
 private val art19EpisodeUrl = Regex(
-    """([\w.-]*art19\.com)/(?:[^/?#\s]+/)*episodes/([0-9a-fA-F-]{36})\.mp3""",
+    """[\w.-]*art19\.com/(?:[^/?#\s]+/)*episodes/([0-9a-fA-F-]{36})(?:\.mp3|/|$)""",
     RegexOption.IGNORE_CASE
 )
 
 /** Builds the episode JSON URL from either the feed enclosure or the URL the download redirected to. */
 fun art19ClipUrl(audioUrl: String): String? {
     val match = art19EpisodeUrl.find(audioUrl) ?: return null
-    return "https://${match.groupValues[1]}/episodes/${match.groupValues[2]}.json"
+    return "https://rss.art19.com/episodes/${match.groupValues[1]}.json"
 }
 
 /**
