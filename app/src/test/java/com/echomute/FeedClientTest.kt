@@ -32,6 +32,29 @@ class FeedClientTest {
         }
     }
 
+    @Test fun acceptsFeedsLargerThanTheOldFiveMegabyteCap() {
+        MockWebServer().use { server ->
+            val padding = "x".repeat(6 * 1024 * 1024)
+            val xml = """<rss><channel><title>Big Show</title><notes>$padding</notes><item><title>Episode 1</title><enclosure url="https://example.com/audio.mp3" type="audio/mpeg"/></item></channel></rss>"""
+            server.enqueue(MockResponse().setBody(xml))
+            val feed = fetchFeed(server.url("/feed").toString())
+            assertEquals("Big Show", feed.title)
+            assertEquals("Episode 1", feed.episodes.single().title)
+        }
+    }
+
+    @Test fun stillRejectsFeedsOverTheSafetyCap() {
+        MockWebServer().use { server ->
+            val padding = "x".repeat(4096)
+            val xml = """<rss><channel><title>Big Show</title><notes>$padding</notes></channel></rss>"""
+            server.enqueue(MockResponse().setBody(xml))
+            val error = assertThrows(IllegalArgumentException::class.java) {
+                fetchFeed(server.url("/feed").toString(), maxBytes = 1024L)
+            }
+            assertEquals("Feed is too large", error.message)
+        }
+    }
+
     @Test fun fetchesTranscriptText() {
         MockWebServer().use { server ->
             val vtt = "WEBVTT\n\n00:00.000 --> 00:02.000\nHello world"

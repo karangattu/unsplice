@@ -1,11 +1,18 @@
 package com.echomute
 
+import java.io.FilterInputStream
+import java.io.IOException
+import java.io.InputStream
 import java.net.URI
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
 private val feedClient = OkHttpClient()
+
+/** Full podcast feeds with a long back catalogue and rich show notes are routinely 5 to 20 MB. */
+private const val MAX_FEED_BYTES = 64L * 1024 * 1024
+private const val MAX_HTML_BYTES = 8L * 1024 * 1024
 
 fun discoverFeedUrlFromHtml(html: String, baseUrl: String): String? {
     val rssLinkRegex = Regex("""href=["'](https?://[^"']+(?:rss|\.xml|podcast\.rss)[^"']*)["']""", RegexOption.IGNORE_CASE)
@@ -39,22 +46,31 @@ private fun resolveRelativeUrl(base: String, relative: String): String {
     } catch (_: Exception) { relative }
 }
 
-fun fetchFeed(url: String): Feed {
+fun fetchFeed(url: String): Feed = fetchFeed(url, MAX_FEED_BYTES)
+
+/** [maxBytes] is a safety net against a runaway response, not a limit on ordinary feeds. */
+internal fun fetchFeed(url: String, maxBytes: Long): Feed {
     require(httpUrl(url)) { "Enter a valid feed URL" }
     feedClient.newCall(Request.Builder().url(url).header("User-Agent", "Unsplice/1.0 (Android)").build()).execute().use { response ->
         check(response.isSuccessful) { "Feed request failed: HTTP ${response.code}" }
-        val source = requireNotNull(response.body).source()
-        require(!source.request(5 * 1024 * 1024L + 1)) { "Feed is too large" }
-        val bytes = source.readByteArray()
-        val header = String(bytes, 0, minOf(bytes.size, 512)).trimStart().lowercase()
-        if (header.startsWith("<!doctype html") || header.startsWith("<html")) {
-            val html = String(bytes, Charsets.UTF_8)
+        val body = requireNotNull(response.body)
+        val declared = body.contentLength()
+        require(declared < 0 || declared <= maxBytes) { "Feed is too large" }
+        val source = body.source()
+
+        // Peek at the start so a pasted website URL can still be auto-discovered, then stream the RSS
+        // straight into the SAX parser instead of holding the whole document in a byte array.
+        val head = ByteArray(512)
+        val headBytes = source.peek().read(head)
+        val prefix = String(head, 0, maxOf(headBytes, 0), Charsets.UTF_8).trimStart().lowercase()
+        if (prefix.startsWith("<!doctype html") || prefix.startsWith("<html")) {
+            require(!source.request(MAX_HTML_BYTES + 1)) { "Page is too large" }
+            val html = source.readUtf8()
             val discovered = discoverFeedUrlFromHtml(html, url)
-            if (discovered != null && discovered != url) {
-                return fetchFeed(discovered)
-            }
+            require(discovered != null && discovered != url) { "No RSS feed found at $url" }
+            return fetchFeed(discovered, maxBytes)
         }
-        return parseFeed(bytes.inputStream())
+        return parseFeed(LimitedInputStream(source.inputStream(), maxBytes))
     }
 }
 
@@ -73,5 +89,27 @@ private fun fetchText(url: String, maxBytes: Long): String {
         val source = requireNotNull(response.body).source()
         require(!source.request(maxBytes + 1)) { "Response is too large" }
         return source.readUtf8()
+    }
+}
+
+/** Counts bytes during the streaming parse so a chunked response cannot grow without bound. */
+private class LimitedInputStream(input: InputStream, private val maxBytes: Long) : FilterInputStream(input) {
+    private var readBytes = 0L
+
+    override fun read(): Int {
+        val value = super.read()
+        if (value >= 0) addBytes(1)
+        return value
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        val count = super.read(b, off, len)
+        if (count > 0) addBytes(count)
+        return count
+    }
+
+    private fun addBytes(count: Int) {
+        readBytes += count
+        if (readBytes > maxBytes) throw IOException("Feed is too large")
     }
 }
