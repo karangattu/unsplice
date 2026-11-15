@@ -2,9 +2,20 @@ package com.echomute
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UiHelpersTest {
+    @Test fun artworkPaletteIsStableAndInRange() {
+        val titles = listOf("Example Show", "Another Show", "", "深夜ラジオ", "A very long podcast title with spaces")
+        for (title in titles) {
+            val index = artworkPaletteIndex(title)
+            assertTrue("$title produced an out-of-range index", index in ArtworkPalette.indices)
+            assertEquals("The same title must keep its colour", index, artworkPaletteIndex(title))
+        }
+        assertTrue("Different titles should not all share one colour", titles.map(::artworkPaletteIndex).toSet().size > 1)
+    }
+
     @Test fun cyclesSpeedPresets() {
         assertEquals(1.25f, nextSpeedPreset(1f), 0.001f)
         assertEquals(1.5f, nextSpeedPreset(1.25f), 0.001f)
