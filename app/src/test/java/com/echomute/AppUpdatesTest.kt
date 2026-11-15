@@ -44,4 +44,39 @@ class AppUpdatesTest {
         assertNull(checkForUpdate(prefs, "0.8.0", now = 2_000L, fetcher = ::fetch))
         assertEquals(2, calls)
     }
+
+    @Test fun forcedCheckBypassesTheCacheAndRefreshesIt() = runBlocking {
+        val prefs = FakePrefs()
+        var calls = 0
+        suspend fun fetch(): String { calls++; return latest }
+        checkForUpdate(prefs, "0.8.0", now = 1_000L, fetcher = ::fetch)
+        assertEquals(1, calls)
+        assertEquals(
+            UpdateCheckResult.Available(AppRelease("0.9.0", "https://github.com/karangattu/unsplice/releases/download/v0.9.0/unsplice-v0.9.0.apk")),
+            checkForUpdateNow(prefs, "0.8.0", now = 2_000L, fetcher = ::fetch)
+        )
+        assertEquals("A manual check must hit the network even inside the cache interval", 2, calls)
+        assertEquals("0.9.0", checkForUpdate(prefs, "0.8.0", now = 3_000L, fetcher = ::fetch)?.version)
+        assertEquals("The forced check refreshed the cache", 2, calls)
+    }
+
+    @Test fun forcedCheckReportsUpToDateAndFailures() = runBlocking {
+        val prefs = FakePrefs()
+        suspend fun fetch(): String = latest
+        assertEquals(UpdateCheckResult.UpToDate, checkForUpdateNow(prefs, "0.9.0", fetcher = ::fetch))
+        assertEquals(UpdateCheckResult.UpToDate, checkForUpdateNow(prefs, "1.0.0", fetcher = ::fetch))
+        assertEquals(
+            "The latest release has no APK",
+            (checkForUpdateNow(prefs, "0.8.0", fetcher = { """{"tag_name":"v0.9.0","assets":[]}""" }) as UpdateCheckResult.Failed).reason
+        )
+        assertTrue(checkForUpdateNow(prefs, "0.8.0", fetcher = { throw java.io.IOException("offline") }) is UpdateCheckResult.Failed)
+    }
+
+    @Test fun aFailedForcedCheckKeepsTheCachedRelease() = runBlocking {
+        val prefs = FakePrefs()
+        suspend fun fetch(): String = latest
+        checkForUpdate(prefs, "0.8.0", now = 1_000L, fetcher = ::fetch)
+        assertTrue(checkForUpdateNow(prefs, "0.8.0", now = 2_000L, fetcher = { throw java.io.IOException("offline") }) is UpdateCheckResult.Failed)
+        assertEquals("0.9.0", checkForUpdate(prefs, "0.8.0", now = 2_001L, fetcher = ::fetch)?.version)
+    }
 }
