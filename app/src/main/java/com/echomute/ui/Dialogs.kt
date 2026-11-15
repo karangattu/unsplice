@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,7 +20,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -160,10 +166,17 @@ internal fun SettingsDialog(
     voiceBoost: Boolean,
     autoDeletePlayed: Boolean,
     storageList: List<PodcastStorageUsage>,
+    version: String?,
+    update: AppRelease?,
+    updateChecking: Boolean,
+    updateStatus: String?,
+    updateDownload: UpdateDownload,
     onTrimSilenceChange: (Boolean) -> Unit,
     onVoiceBoostChange: (Boolean) -> Unit,
     onAutoDeleteChange: (Boolean) -> Unit,
     onClearPodcastStorage: (PodcastStorageUsage) -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: (AppRelease) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -192,6 +205,61 @@ internal fun SettingsDialog(
                             TextButton(onClick = { onClearPodcastStorage(usage) }) {
                                 Text("Clear", color = MaterialTheme.colorScheme.error, maxLines = 1, softWrap = false)
                             }
+                        }
+                    }
+                }
+                HorizontalDivider(color = UnspliceOutline)
+                Text("Updates", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Installed version ${version?.let { "v$it" } ?: "unknown"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = onCheckForUpdates, enabled = !updateChecking) {
+                        Text(if (updateChecking) "Checking…" else "Check for updates", color = UnspliceMint, maxLines = 1, softWrap = false)
+                    }
+                    if (updateChecking) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = UnspliceMint)
+                    }
+                }
+                if (!updateStatus.isNullOrBlank()) {
+                    Text(updateStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                update?.let { release ->
+                    FilledTonalButton(
+                        onClick = { onDownloadUpdate(release) },
+                        enabled = !updateDownload.active,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = UnspliceMint,
+                            contentColor = UnspliceOnMint
+                        )
+                    ) {
+                        Text(
+                            if (updateDownload.active) "Downloading…" else "Download & install v${release.version}",
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                    if (updateDownload.active) {
+                        val progressModifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50))
+                        if (updateDownload.fraction != null) {
+                            val fraction = updateDownload.fraction
+                            LinearProgressIndicator(
+                                progress = { fraction },
+                                modifier = progressModifier,
+                                color = UnspliceMint,
+                                trackColor = UnspliceTrack
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = progressModifier,
+                                color = UnspliceMint,
+                                trackColor = UnspliceTrack
+                            )
                         }
                     }
                 }

@@ -177,9 +177,12 @@ private fun UnspliceApp() {
     var currentIndex by remember { mutableIntStateOf(0) }
     var oldestFirst by rememberSaveable { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
+    val appVersion = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
     var update by remember { mutableStateOf<AppRelease?>(null) }
     val updateFlow = remember { MutableStateFlow(UpdateDownload()) }
     val updateDownload by updateFlow.collectAsState()
+    var updateChecking by remember { mutableStateOf(false) }
+    var updateStatus by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(message) {
         val current = message ?: return@LaunchedEffect
@@ -372,6 +375,55 @@ private fun UnspliceApp() {
         }
     }
 
+    fun startUpdateDownload(release: AppRelease) {
+        if (updateDownload.active) return
+        updateFlow.value = UpdateDownload(active = true)
+        scope.launch {
+            try {
+                val file = updateApkFile(context, release)
+                withContext(Dispatchers.IO) {
+                    downloadUpdateApk(release.apkUrl, file) { done, total ->
+                        updateFlow.value = UpdateDownload(
+                            active = true,
+                            fraction = total.takeIf { it > 0 }?.let { (done.toFloat() / it).coerceIn(0f, 1f) }
+                        )
+                    }
+                }
+                withContext(Dispatchers.Main) { installUpdateApk(context, file) }
+                updateFlow.value = UpdateDownload()
+            } catch (e: Exception) {
+                updateFlow.value = UpdateDownload()
+                message = "Update failed: ${e.message ?: "could not download the APK"}"
+            }
+        }
+    }
+
+    fun checkForUpdates() {
+        if (updateChecking) return
+        updateChecking = true
+        updateStatus = null
+        scope.launch {
+            when (val result = checkForUpdateNow(context)) {
+                is UpdateCheckResult.Available -> {
+                    update = result.release
+                    updateStatus = "Unsplice v${result.release.version} is available"
+                }
+                UpdateCheckResult.UpToDate -> {
+                    update = null
+                    updateStatus = "You're up to date"
+                }
+                is UpdateCheckResult.Failed -> {
+                    // A failed check must not hide an update we already know about.
+                    updateStatus = "Could not check for updates: ${result.reason}"
+                }
+                UpdateCheckResult.Unavailable -> {
+                    updateStatus = "Updates are only available in release builds"
+                }
+            }
+            updateChecking = false
+        }
+    }
+
     fun runPodcastSearch() {
         if (searching || searchQuery.isBlank()) return
         scope.launch {
@@ -474,6 +526,11 @@ private fun UnspliceApp() {
             voiceBoost = voiceBoost,
             autoDeletePlayed = autoDeletePlayed,
             storageList = storageList,
+            version = appVersion,
+            update = update,
+            updateChecking = updateChecking,
+            updateStatus = updateStatus,
+            updateDownload = updateDownload,
             onTrimSilenceChange = {
                 trimSilence = it
                 effectsPrefs.edit { putBoolean("trimSilence", it) }
@@ -498,6 +555,8 @@ private fun UnspliceApp() {
                     showSettingsDialog = false
                 }
             },
+            onCheckForUpdates = { checkForUpdates() },
+            onDownloadUpdate = { release -> startUpdateDownload(release) },
             onDismiss = { showSettingsDialog = false }
         )
     }
@@ -681,9 +740,8 @@ private fun UnspliceApp() {
                         )
                     }
                     selected == null -> {
-                        val version = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
                         LibraryTab(
-                            version = version,
+                            version = appVersion,
                             podcasts = podcasts,
                             unplayedCounts = unplayedCounts,
                             gridLayout = gridLayout,
@@ -692,28 +750,7 @@ private fun UnspliceApp() {
                             onToggleLayout = { gridLayout = !gridLayout },
                             onOpenStats = { showStatsDialog = true },
                             onOpenSettings = { showSettingsDialog = true },
-                            onDownloadUpdate = { release ->
-                                if (updateDownload.active) return@LibraryTab
-                                updateFlow.value = UpdateDownload(active = true)
-                                scope.launch {
-                                    try {
-                                        val file = updateApkFile(context, release)
-                                        withContext(Dispatchers.IO) {
-                                            downloadUpdateApk(release.apkUrl, file) { done, total ->
-                                                updateFlow.value = UpdateDownload(
-                                                    active = true,
-                                                    fraction = total.takeIf { it > 0 }?.let { (done.toFloat() / it).coerceIn(0f, 1f) }
-                                                )
-                                            }
-                                        }
-                                        withContext(Dispatchers.Main) { installUpdateApk(context, file) }
-                                        updateFlow.value = UpdateDownload()
-                                    } catch (e: Exception) {
-                                        updateFlow.value = UpdateDownload()
-                                        message = "Update failed: ${e.message ?: "could not download the APK"}"
-                                    }
-                                }
-                            },
+                            onDownloadUpdate = { release -> startUpdateDownload(release) },
                             onSelectPodcast = { selectedId = it },
                             onRequestRemovePodcast = { podcastPendingRemoval = it },
                             onOpenDiscover = { tab = "Discover" }

@@ -47,6 +47,43 @@ suspend fun checkForUpdate(
     return release?.takeIf { isNewerVersion(currentVersion, it.version) }
 }
 
+/** Outcome of a user-requested update check, so the UI can tell "up to date" from a failed request. */
+sealed interface UpdateCheckResult {
+    data class Available(val release: AppRelease) : UpdateCheckResult
+    data object UpToDate : UpdateCheckResult
+    data class Failed(val reason: String) : UpdateCheckResult
+    data object Unavailable : UpdateCheckResult
+}
+
+/** Checks GitHub right now, ignoring the six-hour cache. Debug builds cannot be updated in place. */
+suspend fun checkForUpdateNow(context: Context): UpdateCheckResult {
+    if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) return UpdateCheckResult.Unavailable
+    val current = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: return UpdateCheckResult.Unavailable
+    val prefs = context.getSharedPreferences("app_update", Context.MODE_PRIVATE)
+    return withContext(Dispatchers.IO) { checkForUpdateNow(prefs, current) }
+}
+
+/** Always fetches, so a manual check is never served a stale cached answer. Refreshes the cache on success. */
+suspend fun checkForUpdateNow(
+    prefs: SharedPreferences,
+    currentVersion: String,
+    now: Long = System.currentTimeMillis(),
+    fetcher: suspend () -> String = { fetchLatestRelease() }
+): UpdateCheckResult {
+    return try {
+        val release = parseLatestRelease(fetcher())
+        if (release == null) {
+            UpdateCheckResult.Failed("The latest release has no APK")
+        } else {
+            prefs.edit().putLong("checkedAt", now).putString("version", release.version).putString("apkUrl", release.apkUrl).apply()
+            if (isNewerVersion(currentVersion, release.version)) UpdateCheckResult.Available(release)
+            else UpdateCheckResult.UpToDate
+        }
+    } catch (e: Exception) {
+        UpdateCheckResult.Failed(e.message ?: "Could not reach GitHub")
+    }
+}
+
 /** Reads GitHub's release JSON into the version and its APK asset, or null when the release has no APK. */
 fun parseLatestRelease(json: String): AppRelease? {
     val release = JSONObject(json)
