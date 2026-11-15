@@ -34,6 +34,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -58,6 +59,7 @@ internal fun LibraryTab(
     unplayedCounts: Map<String, Int>,
     gridLayout: Boolean,
     update: AppRelease?,
+    updateDownload: UpdateDownload = UpdateDownload(),
     onToggleLayout: () -> Unit,
     onOpenStats: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -125,31 +127,60 @@ internal fun LibraryTab(
                     .padding(horizontal = 16.dp, vertical = 4.dp)
                     .testTag("update-banner")
             ) {
-                Row(
-                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.SystemUpdate, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Unsplice v${release.version} is available", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "Tap download to update in place.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = UnspliceOnMintContainer.copy(alpha = 0.85f)
-                        )
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.SystemUpdate, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Unsplice v${release.version} is available", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                if (updateDownload.active) {
+                                    val percent = updateDownload.fraction?.let { " ${(it * 100).toInt()}%" }.orEmpty()
+                                    "Downloading update$percent…"
+                                } else {
+                                    "Tap download to update in place."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = UnspliceOnMintContainer.copy(alpha = 0.85f)
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        FilledTonalButton(
+                            onClick = { onDownloadUpdate(release) },
+                            enabled = !updateDownload.active,
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = UnspliceMint,
+                                contentColor = UnspliceOnMint
+                            )
+                        ) {
+                            Text(
+                                if (updateDownload.active) "Downloading…" else "Download",
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
-                    Spacer(Modifier.width(8.dp))
-                    FilledTonalButton(
-                        onClick = { onDownloadUpdate(release) },
-                        shape = RoundedCornerShape(20.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = UnspliceMint,
-                            contentColor = UnspliceOnMint
-                        )
-                    ) {
-                        Text("Download", fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                    if (updateDownload.active) {
+                        Spacer(Modifier.height(10.dp))
+                        val indicatorModifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50))
+                        if (updateDownload.fraction != null) {
+                            val fraction = updateDownload.fraction
+                            LinearProgressIndicator(
+                                progress = { fraction },
+                                modifier = indicatorModifier,
+                                color = UnspliceMint,
+                                trackColor = UnspliceTrack
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = indicatorModifier,
+                                color = UnspliceMint,
+                                trackColor = UnspliceTrack
+                            )
+                        }
                     }
                 }
             }

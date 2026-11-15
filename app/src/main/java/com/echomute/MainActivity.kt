@@ -2,7 +2,6 @@ package com.echomute
 
 import android.Manifest
 import android.content.ComponentName
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
 import android.os.Build
@@ -56,7 +55,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -69,6 +67,7 @@ import androidx.work.workDataOf
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -179,6 +178,8 @@ private fun UnspliceApp() {
     var oldestFirst by rememberSaveable { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<AppRelease?>(null) }
+    val updateFlow = remember { MutableStateFlow(UpdateDownload()) }
+    val updateDownload by updateFlow.collectAsState()
 
     LaunchedEffect(message) {
         val current = message ?: return@LaunchedEffect
@@ -687,11 +688,31 @@ private fun UnspliceApp() {
                             unplayedCounts = unplayedCounts,
                             gridLayout = gridLayout,
                             update = update,
+                            updateDownload = updateDownload,
                             onToggleLayout = { gridLayout = !gridLayout },
                             onOpenStats = { showStatsDialog = true },
                             onOpenSettings = { showSettingsDialog = true },
                             onDownloadUpdate = { release ->
-                                context.startActivity(Intent(Intent.ACTION_VIEW, release.apkUrl.toUri()))
+                                if (updateDownload.active) return@LibraryTab
+                                updateFlow.value = UpdateDownload(active = true)
+                                scope.launch {
+                                    try {
+                                        val file = updateApkFile(context, release)
+                                        withContext(Dispatchers.IO) {
+                                            downloadUpdateApk(release.apkUrl, file) { done, total ->
+                                                updateFlow.value = UpdateDownload(
+                                                    active = true,
+                                                    fraction = total.takeIf { it > 0 }?.let { (done.toFloat() / it).coerceIn(0f, 1f) }
+                                                )
+                                            }
+                                        }
+                                        withContext(Dispatchers.Main) { installUpdateApk(context, file) }
+                                        updateFlow.value = UpdateDownload()
+                                    } catch (e: Exception) {
+                                        updateFlow.value = UpdateDownload()
+                                        message = "Update failed: ${e.message ?: "could not download the APK"}"
+                                    }
+                                }
                             },
                             onSelectPodcast = { selectedId = it },
                             onRequestRemovePodcast = { podcastPendingRemoval = it },
