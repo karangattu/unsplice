@@ -3,6 +3,9 @@ package com.echomute
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -196,6 +199,35 @@ internal fun MiniPlaybackProgress(position: Long, duration: Long, segments: List
     }
 }
 
+/** Three springy bars that rise with a bounce while audio plays and settle when it is paused. */
+@Composable
+internal fun PlayingEqualizer(playing: Boolean, modifier: Modifier = Modifier) {
+    val heights = if (playing) listOf(0.55f, 1f, 0.72f) else listOf(0.22f, 0.22f, 0.22f)
+    Row(
+        modifier = modifier.height(18.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        heights.forEachIndexed { index, target ->
+            val fraction by animateFloatAsState(
+                targetValue = target,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                ),
+                label = "equalizer-bar-$index"
+            )
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height((14.dp * fraction).coerceAtLeast(2.dp))
+                    .clip(RoundedCornerShape(50))
+                    .background(if (playing) UnspliceMint else UnspliceSlate)
+            )
+        }
+    }
+}
+
 @Composable
 internal fun SettingValueRow(label: String, value: String, onClick: () -> Unit) {
     Row(
@@ -293,6 +325,11 @@ private suspend fun loadArtwork(url: String, pixels: Int): Bitmap? {
     }
 }
 
+private fun artworkGradient(seed: String): Brush {
+    val (start, end) = ArtworkPalette[artworkPaletteIndex(seed)]
+    return Brush.linearGradient(listOf(Color(start), Color(end)))
+}
+
 @Composable
 internal fun PodcastArtwork(title: String, url: String?, size: Dp = 44.dp, cornerRadius: Dp = 10.dp) {
     val pixels = (size.value * LocalContext.current.resources.displayMetrics.density).roundToInt().coerceAtLeast(1)
@@ -304,8 +341,8 @@ internal fun PodcastArtwork(title: String, url: String?, size: Dp = 44.dp, corne
     Box(
         modifier = Modifier
             .size(size)
-            .background(Brush.linearGradient(listOf(Color(0xFF173D38), Color(0xFF182640))), shape)
-            .border(1.dp, Color.White.copy(alpha = 0.08f), shape),
+            .background(artworkGradient(title), shape)
+            .border(1.dp, Color.White.copy(alpha = 0.10f), shape),
         contentAlignment = Alignment.Center
     ) {
         if (bitmap == null) {
@@ -313,7 +350,7 @@ internal fun PodcastArtwork(title: String, url: String?, size: Dp = 44.dp, corne
                 title.take(2).uppercase(),
                 style = if (size >= 80.dp) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = UnspliceMint
+                color = UnspliceIvory
             )
         } else {
             Image(
@@ -383,11 +420,21 @@ internal fun EmptyStateCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
-                    .background(UnspliceMintContainer, CircleShape),
+                    .size(60.dp)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(UnspliceMint.copy(alpha = 0.30f), UnspliceAmber.copy(alpha = 0.12f), Color.Transparent)
+                        ),
+                        CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(26.dp))
+                Box(
+                    modifier = Modifier.size(46.dp).background(UnspliceMintContainer, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(24.dp))
+                }
             }
             Spacer(Modifier.height(14.dp))
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)

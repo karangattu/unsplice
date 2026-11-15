@@ -1,5 +1,18 @@
 package com.echomute
 
+/** Playful gradient pairs for shows without artwork. Colours stay dark enough for ivory initials. */
+internal val ArtworkPalette = listOf(
+    0xFF1D6E60L to 0xFF123A4BL,
+    0xFF7A4A18L to 0xFF3A2360L,
+    0xFF3B3E8FL to 0xFF142A52L,
+    0xFF8A2F52L to 0xFF3A1D4AL,
+    0xFF2F6E86L to 0xFF16324FL,
+    0xFF4A6B2AL to 0xFF123C3AL
+)
+
+/** Stable per-show colour: the same title always gets the same gradient. */
+internal fun artworkPaletteIndex(seed: String): Int = Math.floorMod(seed.hashCode(), ArtworkPalette.size)
+
 data class SleepTimerUpdate(
     val untilEpochMs: Long,
     val endOfEpisode: Boolean,

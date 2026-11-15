@@ -146,6 +146,7 @@ internal fun MiniPlayerBar(
                         )
                     }
                 }
+                PlayingEqualizer(playing = playing, modifier = Modifier.padding(end = 4.dp))
                 IconButton(onClick = onTogglePlayPause) {
                     Icon(
                         if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
