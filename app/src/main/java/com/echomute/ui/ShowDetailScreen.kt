@@ -156,7 +156,7 @@ internal fun ShowDetailScreen(
         }
         LazyColumn(
             Modifier.weight(1f).testTag("episodes"),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 80.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item(key = "show-header") {
