@@ -19,10 +19,11 @@ internal data class ChapterResolution(
     val skipAudioDecode: Boolean
 )
 
-internal data class OmnyTarget(
-    val info: OmnyAdInfo,
-    val rate: Int,
-    val clean: IntArray
+/** Publisher markers plus the ad-free envelope they refer to, ready for alignAdBreaks. */
+internal data class MarkerTarget(
+    val markersMs: List<Long>,
+    val clean: IntArray,
+    val rate: Int
 )
 
 internal fun isDaiShifted(actualDurationMs: Long?, rssDurationMs: Long?): Boolean {
@@ -148,14 +149,36 @@ internal fun resolveOmnyTarget(
     probedDurationMs: Long?,
     clipFetcher: (String) -> OmnyAdInfo? = ::fetchOmnyClip,
     waveformFetcher: (String) -> Pair<Int, IntArray> = ::fetchOmnyWaveform
-): OmnyTarget? {
+): MarkerTarget? {
     val info = clipFetcher(resolvedUrl) ?: return null
-    if (!info.hasMarkers) return null
-    if (info.durationMs != null && probedDurationMs != null && probedDurationMs <= info.durationMs + 5_000L) return null
-    val (rate, clean) = waveformFetcher(info.waveformUrl)
+    return markerTarget(info.markersMs, info.waveformUrl, info.durationMs, probedDurationMs, waveformFetcher)
+}
+
+/** ART19 hides its ad breaks in a separate episode JSON instead of the RSS feed. */
+internal fun resolveArt19Target(
+    resolvedUrl: String,
+    probedDurationMs: Long?,
+    clipFetcher: (String) -> Art19AdInfo? = ::fetchArt19Clip,
+    waveformFetcher: (String) -> Pair<Int, IntArray> = ::fetchArt19Waveform
+): MarkerTarget? {
+    val info = clipFetcher(resolvedUrl) ?: return null
+    return markerTarget(info.markersMs, info.waveformUrl, info.cleanDurationMs, probedDurationMs, waveformFetcher)
+}
+
+private fun markerTarget(
+    markersMs: List<Long>,
+    waveformUrl: String,
+    declaredDurationMs: Long?,
+    probedDurationMs: Long?,
+    waveformFetcher: (String) -> Pair<Int, IntArray>
+): MarkerTarget? {
+    if (markersMs.isEmpty()) return null
+    // If the download is no longer than the ad-free episode, no ads were stitched in.
+    if (declaredDurationMs != null && probedDurationMs != null && probedDurationMs <= declaredDurationMs + 5_000L) return null
+    val (rate, clean) = waveformFetcher(waveformUrl)
     val cleanDurationMs = clean.size * 1000L / rate
     if (probedDurationMs != null && probedDurationMs <= cleanDurationMs + 5_000L) return null
-    return OmnyTarget(info, rate, clean)
+    return MarkerTarget(markersMs, clean, rate)
 }
 
 suspend fun processEpisode(
@@ -213,9 +236,14 @@ suspend fun processEpisode(
             }
             val foundChapterSponsors = chapterRes.skipAudioDecode
 
-            val omnyTarget = if (!foundChapterSponsors) {
-                try {
+            val markerTarget = if (!foundChapterSponsors) {
+                val omny = try {
                     resolveOmnyTarget(resolvedUrl, probedDurationMs)
+                } catch (_: Exception) {
+                    null
+                }
+                omny ?: try {
+                    resolveArt19Target(resolvedUrl, probedDurationMs)
                 } catch (_: Exception) {
                     null
                 }
@@ -231,7 +259,7 @@ suspend fun processEpisode(
                         decodeAudioForAnalysis(
                             source = audio,
                             targetRate = 8000,
-                            envelopeRate = omnyTarget?.rate ?: 0,
+                            envelopeRate = markerTarget?.rate ?: 0,
                             fingerprint = true
                         ) { done, total -> reporter.report(done, total) }
                     } catch (e: InterruptedException) {
@@ -251,13 +279,13 @@ suspend fun processEpisode(
                         }
 
                         var foundMarkers = false
-                        if (omnyTarget != null && analysis.envelope.isNotEmpty()) {
+                        if (markerTarget != null && analysis.envelope.isNotEmpty()) {
                             try {
                                 val (strong, weak) = alignAdBreaks(
-                                    omnyTarget.info.markersMs,
-                                    omnyTarget.clean,
+                                    markerTarget.markersMs,
+                                    markerTarget.clean,
                                     analysis.envelope,
-                                    omnyTarget.rate
+                                    markerTarget.rate
                                 ).partition { it.match >= 0.4 }
                                 saveNewSegments(dao, episode.id, strong.map { it.segment }, "marker", 0.9f)
                                 for (w in weak) weakMarkerSegments.add(w.segment to 0.4f)

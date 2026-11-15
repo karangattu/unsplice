@@ -82,6 +82,12 @@ fun fetchOmnyAdInfo(clip: OmnyClip): OmnyAdInfo? = parseOmnyClip(fetchText(clip.
 
 fun fetchOmnyWaveform(url: String): Pair<Int, IntArray> = parseOmnyWaveform(fetchText(url, 8 * 1024 * 1024L))
 
+fun fetchArt19Clip(audioUrl: String): Art19AdInfo? =
+    art19ClipUrl(audioUrl)?.let { parseArt19Clip(fetchText(it, 1024 * 1024L)) }
+
+fun fetchArt19Waveform(url: String): Pair<Int, IntArray> =
+    parseArt19Waveform(fetchBytes(url, 8 * 1024 * 1024L))
+
 private fun fetchText(url: String, maxBytes: Long): String {
     require(httpUrl(url)) { "Invalid URL" }
     feedClient.newCall(Request.Builder().url(url).header("User-Agent", "Unsplice/1.0 (Android)").build()).execute().use { response ->
@@ -89,6 +95,16 @@ private fun fetchText(url: String, maxBytes: Long): String {
         val source = requireNotNull(response.body).source()
         require(!source.request(maxBytes + 1)) { "Response is too large" }
         return source.readUtf8()
+    }
+}
+
+private fun fetchBytes(url: String, maxBytes: Long): ByteArray {
+    require(httpUrl(url)) { "Invalid URL" }
+    feedClient.newCall(Request.Builder().url(url).header("User-Agent", "Unsplice/1.0 (Android)").build()).execute().use { response ->
+        check(response.isSuccessful) { "Request failed: HTTP ${response.code}" }
+        val source = requireNotNull(response.body).source()
+        require(!source.request(maxBytes + 1)) { "Response is too large" }
+        return source.readByteArray()
     }
 }
 
