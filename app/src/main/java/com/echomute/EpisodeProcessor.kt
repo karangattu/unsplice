@@ -279,6 +279,10 @@ suspend fun processEpisode(
 
             var analysisDurationMs = probedDurationMs
             val weakMarkerSegments = mutableListOf<Pair<Segment, Float>>()
+            var analysisEnvelope = IntArray(0)
+            val envRate = markerTarget?.rate ?: 10
+            var foundMarkers = false
+            var foundRepeat = false
 
             if (!foundChapterSponsors) {
                 analysisSemaphore.withPermit {
@@ -287,7 +291,7 @@ suspend fun processEpisode(
                         decodeAudioForAnalysis(
                             source = audio,
                             targetRate = 8000,
-                            envelopeRate = markerTarget?.rate ?: 0,
+                            envelopeRate = envRate,
                             fingerprint = true
                         ) { done, total -> reporter.report(done, total) }
                     } catch (e: InterruptedException) {
@@ -299,6 +303,7 @@ suspend fun processEpisode(
                     }
 
                     if (analysis != null) {
+                        analysisEnvelope = analysis.envelope
                         if (analysis.durationMs != null) {
                             analysisDurationMs = analysisDurationMs ?: analysis.durationMs
                             if (episode.durationMs == null) {
@@ -306,7 +311,6 @@ suspend fun processEpisode(
                             }
                         }
 
-                        var foundMarkers = false
                         if (markerTarget != null && analysis.envelope.isNotEmpty()) {
                             try {
                                 val (strong, weak) = alignAdBreaks(
@@ -330,6 +334,7 @@ suspend fun processEpisode(
                                 val intra = MatchFinder.intraEpisodePacked(packed)
                                 if (intra.isNotEmpty()) {
                                     saveNewSegments(dao, episode.id, intra)
+                                    foundRepeat = true
                                 }
                                 val currentIndex = PackedHashIndex(packed)
                                 val candidates = selectComparisonCandidates(episode, dao.episodesWithFingerprints())
@@ -339,7 +344,10 @@ suspend fun processEpisode(
                                     val previous = readPackedFingerprints(otherFile)
                                     if (previous.isEmpty()) continue
                                     val (forCurrent, forOther) = MatchFinder.crossEpisodeBidirectional(currentIndex, previous)
-                                    if (forCurrent.isNotEmpty()) saveNewSegments(dao, episode.id, forCurrent)
+                                    if (forCurrent.isNotEmpty()) {
+                                        saveNewSegments(dao, episode.id, forCurrent)
+                                        foundRepeat = true
+                                    }
                                     if (forOther.isNotEmpty()) saveNewSegments(dao, other.id, forOther)
                                     reporter.report((idx + 1).toLong(), candidates.size.toLong())
                                 }
@@ -352,7 +360,17 @@ suspend fun processEpisode(
                 }
             }
 
-            val transcriptSegments = if (!episode.transcriptUrl.isNullOrBlank()) {
+            val daiShifted = isDaiShifted(analysisDurationMs, rssDurationMs)
+            val spliceSegments = if (!foundChapterSponsors && !foundMarkers) {
+                try {
+                    val rawSplices = Mp3SpliceDetector.detect(audio, analysisDurationMs, rssDurationMs)
+                    AcousticAdDetector.corroborateSegments(rawSplices, analysisEnvelope, envRate, daiShifted = false)
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
+
+            val rawTranscriptSegments = if (!episode.transcriptUrl.isNullOrBlank()) {
                 try {
                     val content = fetchTranscript(episode.transcriptUrl!!)
                     detectTranscriptAds(
@@ -368,9 +386,31 @@ suspend fun processEpisode(
                 }
             } else emptyList()
 
-            val (highDeferred, lowDeferred) = chapterRes.deferredSegments.partition { it.second >= AUTO_SKIP_CONFIDENCE }
+            val refinedTranscript = AcousticAdDetector.refineTranscriptSegments(rawTranscriptSegments, analysisEnvelope, envRate)
+            val transcriptSegments = AcousticAdDetector.corroborateSegments(
+                refinedTranscript, analysisEnvelope, envRate, spliceSegments, daiShifted = daiShifted
+            )
+
+            val (highDeferred, rawLowDeferred) = chapterRes.deferredSegments.partition { it.second >= AUTO_SKIP_CONFIDENCE }
+            val lowDeferred = AcousticAdDetector.corroborateSegments(
+                rawLowDeferred, analysisEnvelope, envRate, spliceSegments, daiShifted = daiShifted
+            )
+            val cueFallbacks = AcousticAdDetector.corroborateSegments(
+                chapterRes.cueFallbackSegments, analysisEnvelope, envRate, spliceSegments, daiShifted = false
+            )
+            val acousticBreaks = if (!foundChapterSponsors && !foundMarkers && spliceSegments.isEmpty() && analysisEnvelope.isNotEmpty()) {
+                try {
+                    AcousticAdDetector.detectLoudnessJumpBreaks(analysisEnvelope, envRate, analysisDurationMs)
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
+
             if (highDeferred.isNotEmpty()) {
                 saveNewSegmentsScored(dao, episode.id, highDeferred, "chapter")
+            }
+            if (spliceSegments.isNotEmpty()) {
+                saveNewSegmentsScored(dao, episode.id, spliceSegments, "splice")
             }
             if (transcriptSegments.isNotEmpty()) {
                 saveNewSegmentsScored(dao, episode.id, transcriptSegments, "transcript")
@@ -381,8 +421,11 @@ suspend fun processEpisode(
             if (lowDeferred.isNotEmpty()) {
                 saveNewSegmentsScored(dao, episode.id, lowDeferred, "chapter")
             }
-            if (chapterRes.cueFallbackSegments.isNotEmpty()) {
-                saveNewSegmentsScored(dao, episode.id, chapterRes.cueFallbackSegments, "marker")
+            if (cueFallbacks.isNotEmpty()) {
+                saveNewSegmentsScored(dao, episode.id, cueFallbacks, "marker")
+            }
+            if (!foundRepeat && acousticBreaks.isNotEmpty()) {
+                saveNewSegmentsScored(dao, episode.id, acousticBreaks, "acoustic")
             }
         } finally {
             dao.saveEpisode(episode.copy(status = "READY", fingerprintPath = fingerprintPath))

@@ -76,6 +76,8 @@ fun formatAdSegmentLabel(source: String): String = when (source) {
     "marker" -> "Ad break"
     "chapter" -> "Chapter"
     "transcript" -> "Sponsor read"
+    "splice" -> "Audio splice"
+    "acoustic" -> "Audio break"
     else -> "Repeat"
 }
 
