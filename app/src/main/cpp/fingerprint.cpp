@@ -156,10 +156,9 @@ StreamingAudioAnalyzer::StreamingAudioAnalyzer(
     : sampleRate_(sampleRate),
       channels_(channels > 0 ? channels : 1),
       targetRate_(targetRate > 0 ? targetRate : 8000),
-      envelopeRate_(envelopeRate),
+      envelopeRate_(std::clamp(envelopeRate, 0, targetRate_)),
       enableFingerprint_(enableFingerprint) {
     if (sampleRate_ < targetRate_) sampleRate_ = targetRate_;
-    if (envelopeRate_ > 0) envStep_ = std::max(1, targetRate_ / envelopeRate_);
     if (enableFingerprint_) pcm_.reserve(kChunkSamples + kOverlapSamples + 8192);
 }
 
@@ -169,13 +168,14 @@ void StreamingAudioAnalyzer::configure(int sampleRate, int channels) {
 }
 
 inline void StreamingAudioAnalyzer::pushResampledSample(int16_t sample) {
-    if (envStep_ > 0) {
+    if (envelopeRate_ > 0) {
         int32_t a = std::abs(static_cast<int32_t>(sample));
         if (a > envPeak_) envPeak_ = a;
-        if (++envSampleCount_ >= envStep_) {
+        envPhase_ += envelopeRate_;
+        if (envPhase_ >= targetRate_) {
             envelope_.push_back(envPeak_);
             envPeak_ = 0;
-            envSampleCount_ = 0;
+            envPhase_ -= targetRate_;
         }
     }
     if (enableFingerprint_) {

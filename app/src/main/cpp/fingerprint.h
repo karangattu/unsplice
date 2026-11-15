@@ -28,8 +28,7 @@ private:
     int targetRate_;
     int envelopeRate_;
     bool enableFingerprint_;
-    int envStep_ = 0;
-    int envSampleCount_ = 0;
+    int envPhase_ = 0;
     int32_t envPeak_ = 0;
 
     int64_t phase_ = 0;

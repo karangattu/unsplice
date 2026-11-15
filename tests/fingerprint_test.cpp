@@ -60,4 +60,9 @@ int main() {
         secCount++;
         assert(secCount <= 8);
     }
+
+    // An envelope rate that does not divide the PCM rate must stay on the audio clock.
+    StreamingAudioAnalyzer unevenRate(16000, 2, 8000, 7, false);
+    for (int i = 0; i < 10; ++i) unevenRate.feedPcmBytes(stereoLe.data(), stereoLe.size());
+    assert(unevenRate.envelope().size() == 360 * 7);
 }
