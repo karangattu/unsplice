@@ -343,13 +343,15 @@ private fun UnspliceApp() {
     LaunchedEffect(controller) {
         while (true) {
             controller?.let { player ->
-                position = player.currentPosition
-                duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0
-                playing = player.isPlaying
-                currentId = player.currentMediaItem?.mediaId
-                queue = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
-                currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
-                speed = player.playbackParameters.speed
+                withContext(Dispatchers.Main.immediate) {
+                    position = player.currentPosition
+                    duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0
+                    playing = player.isPlaying
+                    currentId = player.currentMediaItem?.mediaId
+                    queue = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+                    currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+                    speed = player.playbackParameters.speed
+                }
                 segments = currentId?.let { dao.segments(it) } ?: emptyList()
                 lastSkip = prefs.getString("episode", null)
                 val sleepUntil = prefs.getLong("sleepUntilEpochMs", 0L)
@@ -595,8 +597,9 @@ private fun UnspliceApp() {
     }
 
     val upcoming = remember(queue, currentIndex) { queue.drop(currentIndex) }
-    val currentTitle = controller?.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty()
-    val currentArtist = controller?.currentMediaItem?.mediaMetadata?.artist?.toString().orEmpty()
+    val currentMetadata = queue.getOrNull(currentIndex)?.mediaMetadata
+    val currentTitle = currentMetadata?.title?.toString().orEmpty()
+    val currentArtist = currentMetadata?.artist?.toString().orEmpty()
     val playingEpisode = currentId?.let { episodesById[it] }
     val playingPodcast = playingEpisode?.let { podcastsById[it.podcastId] } ?: podcastsByTitle[currentArtist]
     val currentAutoSkip = playingPodcast?.autoSkip ?: true
