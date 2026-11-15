@@ -1,7 +1,9 @@
 package com.echomute
 
 import android.content.ComponentName
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -9,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.media3.session.MediaController
@@ -60,17 +63,22 @@ class QueueScreenTest {
                 compose.onNodeWithContentDescription("Resume playback").performClick()
                 compose.waitUntil(10000) { compose.onAllNodes(hasContentDescription("Pause playback")).fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithContentDescription("Pause playback").performClick()
-                compose.onNodeWithTag("episodes").performScrollToNode(hasText(second))
-                compose.onNodeWithTag("add-$second").performClick()
-                compose.onNodeWithTag("episodes").performScrollToNode(hasText(third))
-                compose.onNodeWithTag("add-$third").performClick()
+                compose.onNodeWithTag("episodes").performScrollToNode(hasTestTag("add-$second"))
+                compose.onNodeWithTag("add-$second").performSemanticsAction(SemanticsActions.OnClick)
+                compose.onNodeWithTag("episodes").performScrollToNode(hasTestTag("add-$third"))
+                compose.onNodeWithTag("add-$third").performSemanticsAction(SemanticsActions.OnClick)
                 compose.onNodeWithText("Up Next").performClick()
+                compose.waitUntil(10000) {
+                    compose.onAllNodes(hasTestTag("queue-$second")).fetchSemanticsNodes().isNotEmpty() &&
+                        compose.onAllNodes(hasTestTag("queue-$third")).fetchSemanticsNodes().isNotEmpty()
+                }
                 fun top(title: String) = compose.onNodeWithTag("queue-$title").fetchSemanticsNode().boundsInRoot.top
                 assertTrue(top(second) < top(third))
                 compose.onNodeWithContentDescription("Move $third up").performClick()
                 compose.waitUntil(10000) { top(third) < top(second) }
                 assertTrue(top(third) < top(second))
                 compose.onNodeWithContentDescription("Remove $second from Up Next").performClick()
+                compose.waitUntil(10000) { compose.onAllNodes(hasTestTag("queue-$second")).fetchSemanticsNodes().isEmpty() }
                 compose.onNodeWithTag("queue-$second").assertDoesNotExist()
                 compose.onNodeWithTag("queue-$third").assertExists()
             }

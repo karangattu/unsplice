@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import android.content.pm.PackageManager
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -39,7 +40,7 @@ class SubscribeScreenTest {
             compose.waitUntil(10000) { compose.onAllNodes(androidx.compose.ui.test.hasText("Device Test Episode")).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Device Test Episode").assertExists()
             compose.onNodeWithText("Download").performClick()
-            compose.waitUntil(60000) { compose.onAllNodes(androidx.compose.ui.test.hasText("Delete")).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(60000) { compose.onAllNodes(hasContentDescription("Delete download")).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Play").performClick()
             compose.waitUntil(10000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Pause playback")).fetchSemanticsNodes().isNotEmpty() }
         }

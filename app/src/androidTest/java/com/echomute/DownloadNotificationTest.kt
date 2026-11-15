@@ -78,7 +78,7 @@ class DownloadNotificationTest {
             server.enqueue(
                 MockResponse()
                     .setBody(okio.Buffer().write(ByteArray(200_000)))
-                    .throttleBody(100_000, 10, TimeUnit.SECONDS)
+                    .throttleBody(50_000, 1, TimeUnit.SECONDS)
             )
             runBlocking {
                 dao.savePodcast(Podcast(podcastId, "Test show", server.url("/feed").toString()))
