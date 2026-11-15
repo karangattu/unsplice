@@ -16,9 +16,8 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-/** Writes a mono 8 kHz 16-bit 440 Hz tone. */
-private fun writeToneWav(file: File, seconds: Int) {
-    val rate = 8000
+/** Writes a mono 16-bit 440 Hz tone at [rate] Hz. */
+private fun writeToneWav(file: File, seconds: Int, rate: Int = 8000) {
     val samples = rate * seconds
     val data = java.nio.ByteBuffer.allocate(44 + samples * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN)
     data.put("RIFF".toByteArray()).putInt(36 + samples * 2).put("WAVE".toByteArray())
@@ -268,6 +267,95 @@ class PlaybackServiceTest {
             instrumentation.runOnMainSync { controller.pause(); controller.release() }
             file.delete()
             runBlocking { dao.deleteEpisode("skip-episode"); dao.deletePodcast("skip-test") }
+        }
+    }
+
+    @Test fun skipsPreRollOnInitialPlayAndWhenSegmentsArriveDuringPlayback() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val file = File(context.cacheDir, "preroll-dynamic-test.wav")
+        writeToneWav(file, seconds = 10, rate = 44100)
+        val dao = LibraryDatabase.get(context).library()
+        val prefs = context.getSharedPreferences("playback", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        runBlocking {
+            dao.savePodcast(Podcast("preroll-pod", "Test", "https://example.com", autoSkip = true))
+            dao.saveEpisode(Episode("preroll-static", "preroll-pod", "Static", "https://example.com/1", localPath = file.path, status = "READY"))
+            dao.saveEpisode(Episode("preroll-dynamic", "preroll-pod", "Dynamic", "https://example.com/2", localPath = file.path, status = "READY"))
+            dao.deleteSegments("preroll-static")
+            dao.deleteSegments("preroll-dynamic")
+            dao.saveSegments(listOf(AdSegment(episodeId = "preroll-static", startMs = 0, endMs = 6_000, source = "marker", confidence = 0.9f)))
+        }
+        val controller = MediaController.Builder(context, SessionToken(context, ComponentName(context, PlaybackService::class.java))).buildAsync().get(15, TimeUnit.SECONDS)
+        try {
+            val startedAt = System.currentTimeMillis()
+            instrumentation.runOnMainSync {
+                controller.setMediaItem(MediaItem.Builder().setMediaId("preroll-static").setUri(file.toURI().toString()).build())
+                controller.prepare()
+                controller.play()
+            }
+            var staticPos = 0L
+            while (System.currentTimeMillis() - startedAt < 2_000) {
+                Thread.sleep(50)
+                instrumentation.runOnMainSync {
+                    if (controller.currentMediaItem?.mediaId == "preroll-static") staticPos = controller.currentPosition
+                }
+                if (staticPos >= 6_000 && prefs.getString("episode", null) == "preroll-static") break
+            }
+            assertTrue("Initial play from 0 ms should skip pre-roll immediately; position was $staticPos", staticPos >= 6_000)
+            assertEquals("preroll-static", prefs.getString("episode", null))
+            assertEquals(0L, prefs.getLong("skipStart", -1L))
+
+            prefs.edit().clear().commit()
+            instrumentation.runOnMainSync {
+                controller.setMediaItem(MediaItem.Builder().setMediaId("preroll-dynamic").setUri(file.toURI().toString()).build())
+                controller.prepare()
+                controller.play()
+            }
+            var playingPos = 0L
+            repeat(40) {
+                Thread.sleep(50)
+                instrumentation.runOnMainSync {
+                    if (controller.currentMediaItem?.mediaId == "preroll-dynamic") playingPos = controller.currentPosition
+                }
+                if (playingPos >= 100) return@repeat
+            }
+            assertTrue("Dynamic episode should start playing before segments arrive; position was $playingPos", playingPos in 100..2_500)
+
+            val insertedAt = System.currentTimeMillis()
+            runBlocking {
+                dao.saveSegments(listOf(
+                    AdSegment(episodeId = "preroll-dynamic", startMs = 0, endMs = 6_000, source = "marker", confidence = 0.9f),
+                    AdSegment(episodeId = "preroll-dynamic", startMs = 8_000, endMs = 10_000, source = "marker", confidence = 0.9f)
+                ))
+            }
+            var dynamicPos = 0L
+            while (System.currentTimeMillis() - insertedAt < 2_000) {
+                Thread.sleep(50)
+                instrumentation.runOnMainSync {
+                    if (controller.currentMediaItem?.mediaId == "preroll-dynamic") dynamicPos = controller.currentPosition
+                }
+                if (dynamicPos >= 6_000 && prefs.getString("episode", null) == "preroll-dynamic") break
+            }
+            assertTrue("Playback already inside a pre-roll should skip when segments arrive; position was $dynamicPos", dynamicPos >= 6_000)
+            assertEquals("preroll-dynamic", prefs.getString("episode", null))
+            assertEquals(0L, prefs.getLong("skipStart", -1L))
+
+            instrumentation.runOnMainSync { controller.seekTo(7_800L) }
+            val postRollAt = System.currentTimeMillis()
+            var postRollFinished = false
+            while (System.currentTimeMillis() - postRollAt < 2_000) {
+                Thread.sleep(50)
+                postRollFinished = prefs.getLong("skipStart", -1L) == 8_000L && runBlocking { dao.episode("preroll-dynamic")?.finished == true }
+                if (postRollFinished) break
+            }
+            assertTrue("Post-roll ad should skip to end and finish episode", postRollFinished)
+            Thread.sleep(500)
+            assertEquals("Finishing via post-roll must not restart and re-skip pre-roll", 8_000L, prefs.getLong("skipStart", -1L))
+        } finally {
+            instrumentation.runOnMainSync { controller.pause(); controller.clearMediaItems(); controller.release() }
+            file.delete()
+            runBlocking { dao.deletePodcast("preroll-pod") }
         }
     }
 }

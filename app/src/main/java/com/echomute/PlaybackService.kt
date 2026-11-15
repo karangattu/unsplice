@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.SharedPreferences
 import android.media.audiofx.LoudnessEnhancer
+import androidx.core.content.edit
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -49,7 +50,10 @@ class PlaybackService : MediaLibraryService() {
     private var skipSegments: Pair<String, List<AdSegment>>? = null
     private val skipMessages = mutableListOf<PlayerMessage>()
     private var catchUpPending = false
+    private var lastSkippedSegment: Pair<String, Long>? = null
+    private var lastSkippedAtMs = 0L
     private var lastSavedProgress: Pair<String, Long>? = null
+    private var lastSavedPosition: Pair<String, Long>? = null
     private var swapping = false
     private val finishedEpisodeIds = mutableSetOf<String>()
     private var loudnessEnhancer: LoudnessEnhancer? = null
@@ -86,6 +90,8 @@ class PlaybackService : MediaLibraryService() {
                 currentId.value = mediaItem?.mediaId
                 mediaItem?.mediaId?.let { finishedEpisodeIds.remove(it) }
                 if (swapping) return
+                lastSkippedSegment = null
+                lastSkippedAtMs = 0L
                 catchUpPending = true
                 scheduleSkips()
                 applyAudioEffects(mediaItem?.mediaId, applyCustomSpeed = true)
@@ -120,6 +126,7 @@ class PlaybackService : MediaLibraryService() {
                     val id = currentId.value ?: player.currentMediaItem?.mediaId
                     if (id != null) scope.launch { finishEpisode(id) }
                 } else if (playbackState == Player.STATE_READY) {
+                    catchUpPending = true
                     scheduleSkips()
                 }
             }
@@ -130,6 +137,12 @@ class PlaybackService : MediaLibraryService() {
                     getSharedPreferences("playback", MODE_PRIVATE).edit().putBoolean("isPlaying", player.isPlaying).apply()
                     saveQueue()
                     UnspliceWidgetProvider.notifyChange(this@PlaybackService)
+                }
+                if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_POSITION_DISCONTINUITY) &&
+                    (player.isPlaying || player.playWhenReady)
+                ) {
+                    catchUpPending = true
+                    scheduleSkips()
                 }
             }
         })
@@ -156,6 +169,14 @@ class PlaybackService : MediaLibraryService() {
                             trimSilence = player.skipSilenceEnabled
                         )
                     }
+                    val playingId = player.currentMediaItem?.mediaId
+                    val pos = player.currentPosition
+                    if (playingId != null && skipSegments?.first == playingId &&
+                        skipSegments?.second?.any { pos >= it.startMs && pos < it.endMs } == true
+                    ) {
+                        catchUpPending = true
+                        scheduleSkips()
+                    }
                     saveQueue()
                 }
             }
@@ -168,6 +189,7 @@ class PlaybackService : MediaLibraryService() {
                 }
             }.distinctUntilChanged().collect {
                 skipSegments = it
+                catchUpPending = true
                 scheduleSkips()
             }
         }
@@ -221,23 +243,15 @@ class PlaybackService : MediaLibraryService() {
             finishEpisodeAndCleanup(dao, filesDir, ep, autoDelete)
         }
         if (autoDelete && !ep.starred) {
-            detachDeletedEpisode(id, ep.audioUrl)
+            detachDeletedEpisode(id)
         }
     }
 
-    private fun detachDeletedEpisode(id: String, remoteUrl: String) {
+    private fun detachDeletedEpisode(id: String) {
         for (index in player.mediaItemCount - 1 downTo 0) {
             val item = player.getMediaItemAt(index)
-            if (item.mediaId != id) continue
-            if (index == player.currentMediaItemIndex) {
-                if (item.localConfiguration?.uri?.scheme != "file") continue
-                swapping = true
-                try {
-                    player.replaceMediaItem(index, item.toQueueItem().copy(uri = remoteUrl).toMediaItem())
-                } finally { swapping = false }
-            } else {
-                player.removeMediaItem(index)
-            }
+            if (item.mediaId != id || index == player.currentMediaItemIndex) continue
+            player.removeMediaItem(index)
         }
     }
 
@@ -280,7 +294,9 @@ class PlaybackService : MediaLibraryService() {
             } else {
                 return@launch
             }
-            if (player.currentMediaItem?.mediaId == id && player.currentPosition < 1_000) {
+            val atStartOrSkippedPreRoll = player.currentPosition < 1_000 ||
+                (lastSkippedSegment == (id to 0L) && targetMs > player.currentPosition)
+            if (player.currentMediaItem?.mediaId == id && atStartOrSkippedPreRoll) {
                 player.seekTo(targetMs)
                 catchUpPending = true
                 scheduleSkips()
@@ -303,6 +319,7 @@ class PlaybackService : MediaLibraryService() {
                     player.replaceMediaItem(index, replacement)
                     player.seekTo(index, position)
                 } finally { swapping = false }
+                catchUpPending = true
                 scheduleSkips()
             } else {
                 player.replaceMediaItem(index, replacement)
@@ -327,17 +344,41 @@ class PlaybackService : MediaLibraryService() {
         val id = player.currentMediaItem?.mediaId ?: return
         val position = player.currentPosition
         val duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET }
+        lastSavedProgress = id to position
         if (isEpisodeCompleted(position, duration)) {
-            if (finishedEpisodeIds.add(id)) {
-                scope.launch { finishEpisode(id) }
+            if (!player.isPlaying && !player.playWhenReady && finishedEpisodeIds.add(id)) {
+                scope.launch { dao.markFinished(id) }
             }
             return
         }
         finishedEpisodeIds.remove(id)
-        val last = lastSavedProgress
+        val last = lastSavedPosition
         if (last != null && last.first == id && kotlin.math.abs(last.second - position) < 1_000) return
-        lastSavedProgress = id to position
+        lastSavedPosition = id to position
         scope.launch { dao.savePosition(id, position, duration) }
+    }
+
+    private fun performAdSkip(id: String, segment: AdSegment, skippedFromMs: Long, statsPrefs: SharedPreferences) {
+        if (player.currentMediaItem?.mediaId != id || player.playbackState == Player.STATE_ENDED) return
+        val playPrefs = getSharedPreferences("playback", MODE_PRIVATE)
+        if (playPrefs.getString("undoneEpisodeId", null) == id &&
+            playPrefs.getLong("undoneSegmentStart", -1L) == segment.startMs &&
+            android.os.SystemClock.elapsedRealtime() < playPrefs.getLong("undoneUntilMs", 0L)
+        ) {
+            return
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (lastSkippedSegment == (id to segment.startMs) && now - lastSkippedAtMs < 3_000L) return
+        lastSkippedSegment = id to segment.startMs
+        lastSkippedAtMs = now
+        playPrefs.edit {
+            putString("episode", id)
+            putLong("skipStart", segment.startMs)
+        }
+        ListeningStatsStore.recordAdSkipped(statsPrefs, (segment.endMs - skippedFromMs).coerceAtLeast(0L))
+        val duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET }
+        val targetMs = if (duration != null && segment.endMs >= duration - 1_500L) duration else segment.endMs
+        player.seekTo(targetMs)
     }
 
     private fun scheduleSkips() {
@@ -348,24 +389,21 @@ class PlaybackService : MediaLibraryService() {
         val segments = skipSegments?.takeIf { it.first == id }?.second.orEmpty()
         for (segment in segments) {
             skipMessages += player.createMessage { _, _ ->
-                if (player.currentMediaItem?.mediaId == id) {
-                    getSharedPreferences("playback", MODE_PRIVATE).edit().putString("episode", id).putLong("skipStart", segment.startMs).apply()
-                    ListeningStatsStore.recordAdSkipped(statsPrefs, (segment.endMs - segment.startMs).coerceAtLeast(0L))
-                    player.seekTo(segment.endMs)
-                }
+                performAdSkip(id, segment, segment.startMs, statsPrefs)
             }
                 .setLooper(mainLooper)
                 .setPosition(segment.startMs)
                 .setDeleteAfterDelivery(false)
                 .send()
         }
-        if (catchUpPending && segments.isNotEmpty()) {
+        if ((catchUpPending || player.isPlaying || player.playWhenReady) &&
+            segments.isNotEmpty() &&
+            player.playbackState != Player.STATE_ENDED
+        ) {
             catchUpPending = false
             val position = player.currentPosition
             segments.firstOrNull { position >= it.startMs && position < it.endMs }?.let { segment ->
-                getSharedPreferences("playback", MODE_PRIVATE).edit().putString("episode", id).putLong("skipStart", segment.startMs).apply()
-                ListeningStatsStore.recordAdSkipped(statsPrefs, (segment.endMs - position).coerceAtLeast(0L))
-                player.seekTo(segment.endMs)
+                performAdSkip(id, segment, position, statsPrefs)
             }
         }
         val duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: return

@@ -198,6 +198,12 @@ private fun UnspliceApp() {
     fun prepareForPlayback(episode: Episode) {
         if (episode.status !in listOf("DOWNLOADING", "QUEUED", "PROCESSING", "READY")) {
             scope.launch { enqueueEpisode(context, dao, episode) }
+        } else if (episode.status == "READY") {
+            scope.launch {
+                if (dao.segments(episode.id).isEmpty() && (omnyClip(episode.audioUrl) != null || art19ClipUrl(episode.audioUrl) != null)) {
+                    enqueueEpisode(context, dao, episode)
+                }
+            }
         }
     }
 
@@ -473,9 +479,16 @@ private fun UnspliceApp() {
         val id = currentId
         scope.launch {
             val start = prefs.getLong("skipStart", 0)
+            prefs.edit {
+                remove("episode")
+                if (id != null) {
+                    putString("undoneEpisodeId", id)
+                    putLong("undoneSegmentStart", start)
+                    putLong("undoneUntilMs", android.os.SystemClock.elapsedRealtime() + 2_000L)
+                }
+            }
             if (id != null) dao.segments(id).filter { it.startMs == start }.forEach { dao.deleteSegment(it.id) }
             controller?.seekTo(start + 1)
-            prefs.edit { remove("episode") }
             lastSkip = null
         }
     }
