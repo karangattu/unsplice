@@ -54,12 +54,12 @@ class Mp3SpliceDetectorTest {
         val file: File = tempFolder.newFile("cbr_splice.mp3")
         file.writeBytes(out.toByteArray())
 
-        val detected = Mp3SpliceDetector.detect(file, probedDurationMs = 150_000L, rssDurationMs = 120_000L)
+        val detected = Mp3SpliceDetector.detect(file)
         assertEquals(1, detected.size)
         val (seg, conf) = detected[0]
         assertTrue("startMs=${seg.startMs}", seg.startMs in 58_000L..62_000L)
         assertTrue("endMs=${seg.endMs}", seg.endMs in 88_000L..92_000L)
-        assertTrue("conf=$conf", conf >= AUTO_SKIP_CONFIDENCE)
+        assertTrue("An encoding change alone must be manual: $conf", conf < AUTO_SKIP_CONFIDENCE)
     }
 
     @Test
@@ -70,8 +70,10 @@ class Mp3SpliceDetectorTest {
             val brIdx = 7 + (i % 5) // 96..192 kbps
             out.write(mpeg1L3Frame(bitrateIdx = brIdx, sampleRateIdx = 0, channelMode = 1))
         }
-        // 1150 frames (~30s) of Mono (channelMode = 3) ad
-        writeFrames(out, 1150, bitrateIdx = 9, sampleRateIdx = 0, channelMode = 3)
+        // ~30s of mono audio, also with a different bitrate on each frame.
+        for (i in 0 until 1150) {
+            out.write(mpeg1L3Frame(bitrateIdx = 5 + (i % 3), channelMode = 3))
+        }
         for (i in 0 until 2300) {
             val brIdx = 7 + (i % 5)
             out.write(mpeg1L3Frame(bitrateIdx = brIdx, sampleRateIdx = 0, channelMode = 1))
@@ -80,12 +82,37 @@ class Mp3SpliceDetectorTest {
         val file = tempFolder.newFile("vbr_struct.mp3")
         file.writeBytes(out.toByteArray())
 
-        val detected = Mp3SpliceDetector.detect(file, probedDurationMs = 150_000L, rssDurationMs = 150_000L)
+        val detected = Mp3SpliceDetector.detect(file)
         assertEquals(1, detected.size)
         val (seg, conf) = detected[0]
         assertTrue(seg.startMs in 58_000L..62_000L)
         assertTrue(seg.endMs in 88_000L..92_000L)
-        assertTrue(conf >= AUTO_SKIP_CONFIDENCE)
+        assertTrue(conf < AUTO_SKIP_CONFIDENCE)
+    }
+
+    @Test
+    fun switchingBetweenJointStereoAndStereoDoesNotCreateASplice() {
+        val file = tempFolder.newFile("stereo-modes.mp3")
+        file.outputStream().use { out ->
+            val joint = mpeg1L3Frame(bitrateIdx = 9, channelMode = 1)
+            val stereo = mpeg1L3Frame(bitrateIdx = 9, channelMode = 0)
+            repeat(2300) { out.write(joint) }
+            repeat(1150) { out.write(stereo) }
+            repeat(2300) { out.write(joint) }
+        }
+        assertTrue(Mp3SpliceDetector.detect(file).isEmpty())
+    }
+
+    @Test
+    fun rejectsMp3LookingFramesInsideAnUnsupportedContainer() {
+        val out = ByteArrayOutputStream()
+        out.write("OggS".toByteArray())
+        writeFrames(out, 2300, bitrateIdx = 9)
+        writeFrames(out, 1150, bitrateIdx = 5)
+        writeFrames(out, 2300, bitrateIdx = 9)
+        val file = tempFolder.newFile("not-mp3")
+        file.writeBytes(out.toByteArray())
+        assertTrue(Mp3SpliceDetector.detect(file).isEmpty())
     }
 
     @Test
@@ -95,7 +122,7 @@ class Mp3SpliceDetectorTest {
         val file = tempFolder.newFile("clean.mp3")
         file.writeBytes(out.toByteArray())
 
-        assertTrue(Mp3SpliceDetector.detect(file, 78_000L, 78_000L).isEmpty())
+        assertTrue(Mp3SpliceDetector.detect(file).isEmpty())
     }
 
     @Test
@@ -107,6 +134,6 @@ class Mp3SpliceDetectorTest {
         val file = tempFolder.newFile("glitch.mp3")
         file.writeBytes(out.toByteArray())
 
-        assertTrue(Mp3SpliceDetector.detect(file, 122_000L, 122_000L).isEmpty())
+        assertTrue(Mp3SpliceDetector.detect(file).isEmpty())
     }
 }

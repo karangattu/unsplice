@@ -91,20 +91,20 @@ class TranscriptAdsTest {
     }
 
     @Test fun refineEdgesSnapsToLongestPause() {
-        val envelope = FloatArray(600) { 1000f }
-        for (i in 96..98) envelope[i] = 10f // a 300 ms pause ending at 9.9 s
-        envelope[102] = 5f // a single quiet frame between words, nearer but too short
-        for (i in 402..406) envelope[i] = 20f // a 500 ms pause starting at 40.2 s
-        for (i in 384..386) envelope[i] = 0f // a shorter pause, closer to the edge
+        val envelope = IntArray(600) { 1000 }
+        for (i in 96..98) envelope[i] = 10 // a 300 ms pause ending at 9.9 s
+        envelope[102] = 5 // a single quiet frame between words, nearer but too short
+        for (i in 402..406) envelope[i] = 20 // a 500 ms pause starting at 40.2 s
+        for (i in 384..386) envelope[i] = 0 // a shorter pause, closer to the edge
         assertEquals(Segment(9_900, 40_200), refineEdges(Segment(10_000, 40_000), envelope))
     }
 
     @Test fun refineEdgesKeepsEdgeWithoutAPause() {
-        val envelope = FloatArray(600) { 1000f + (it % 7) }
-        envelope[100] = 1f
-        envelope[101] = 1f
+        val envelope = IntArray(600) { 1000 + (it % 7) }
+        envelope[100] = 1
+        envelope[101] = 1
         assertEquals(Segment(10_000, 40_000), refineEdges(Segment(10_000, 40_000), envelope))
-        assertEquals(Segment(10_000, 40_000), refineEdges(Segment(10_000, 40_000), FloatArray(0)))
+        assertEquals(Segment(10_000, 40_000), refineEdges(Segment(10_000, 40_000), IntArray(0)))
     }
 
     @Test fun confidenceStaysBelowAutoSkipByDefault() {

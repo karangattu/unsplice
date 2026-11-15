@@ -14,18 +14,21 @@ Each detected segment records its `source` and a `confidence` from 0 to 1. Segme
 
 | Source | How it is found | Confidence |
 | --- | --- | --- |
-| `marker` | For Omny Studio episodes (including iHeart shows): the clip API lists where ad breaks go in the ad-free episode and publishes a loudness waveform of it. Sliding that waveform along the downloaded audio after each marker gives each break's length. Breaks that line up poorly (correlation below 0.4) are not auto-skipped. | 0.9 |
+| `marker` | For Omny Studio and ART19 episodes with publisher markers and an ad-free waveform, compares the waveform to the downloaded audio to find each break's length. Breaks that line up poorly (correlation below 0.4) are manual suggestions. | 0.9 for a strong match |
 | `chapter` | ID3 `CHAP` frames in the audio file whose title names an ad or sponsor | 0.9 |
-| `chapter` | Podcasting 2.0 `<podcast:chapters>` JSON from the feed, used only when the file has no ID3 chapters. These may not account for dynamically inserted ads, so they are trusted less. | 0.7 |
+| `chapter` | Chapters from the feed can qualify for automatic skipping when the feed duration matches the downloaded audio. If the duration is missing or differs, they are manual suggestions. | 0.85 for a verified sponsor chapter |
 | `repeat` | Audio fingerprints that repeat within an episode or across any downloaded episode in the library, since networks insert the same ads into every show | 0.6 |
+| `transcript` | Timed text with wording that suggests a sponsor read. A strong transcript cue can qualify for automatic skipping if the feed duration matches the audio and both edges match an MP3 splice. | 0.3–0.45 by itself |
+| `splice` | A sustained change in MP3 encoding that can point to an inserted break. | 0.45 |
+| `acoustic` | A louder stretch of audio separated by pauses or the start or end of an episode. | 0.45 |
 
-Sources are checked in that order. While this runs the episode shows "Finding ads…"; an episode with no ads found offers "Scan again", which clears its segments and reruns detection without downloading again. A later segment that overlaps an earlier one is not stored.
+While detection runs, the episode shows "Finding ads…". "Scan again" clears detected segments and runs detection on the existing download. A segment that qualifies for automatic skipping can replace an overlapping manual suggestion.
 
 ### What stops this working on every feed
 
 Nothing in RSS says where the ads are, so coverage depends on the host:
 
-- **Dynamic insertion (Omny, Megaphone, Acast, Art19, Spreaker, Libsyn, Podbean, and others)**: ads are stitched into the file per download. Only Omny publishes the break positions and a clean waveform; the other hosts expose nothing, so those feeds fall back to the `repeat` detector, which only catches an ad once it has appeared in two downloaded episodes.
+- **Dynamic insertion (Omny, Megaphone, Acast, ART19, Spreaker, Libsyn, Podbean, and others)**: ads are stitched into the file per download. When publisher markers and a clean waveform are unavailable, Unsplice falls back to the other signals above.
 - **Host-read ads baked into the audio**: identical across listeners, but unique per episode, so neither markers nor repeats catch them. Chapters catch them when the publisher labels them.
 - **The `repeat` detector** ignores the first three minutes, needs at least 15 s of matching audio, and treats any repeated audio as an ad, so recurring segments such as a long outro are flagged and a one-off ad never is.
 

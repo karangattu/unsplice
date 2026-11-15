@@ -22,7 +22,10 @@ class EpisodeProcessorTest {
         override suspend fun savePodcast(podcast: Podcast) {}
         override suspend fun setArtworkIfMissing(id: String, url: String) {}
         override suspend fun saveEpisode(episode: Episode) {}
-        override suspend fun saveSegments(segments: List<AdSegment>) { stored.addAll(segments) }
+        private var nextSegmentId = 1L
+        override suspend fun saveSegments(segments: List<AdSegment>) {
+            stored.addAll(segments.map { it.copy(id = nextSegmentId++) })
+        }
         override fun observePodcasts(): Flow<List<Podcast>> = flowOf(emptyList())
         override suspend fun podcast(id: String): Podcast? = null
         override fun observeEpisodes(id: String): Flow<List<Episode>> = flowOf(emptyList())
@@ -176,7 +179,7 @@ class EpisodeProcessorTest {
         }
     }
 
-    @Test fun downgradesDaiShiftedAndUnverifiedJsonChaptersBelowSkipDecode() {
+    @Test fun keepsJsonChaptersManualWithoutMatchingFeedAndAudioDurations() {
         val audio = File.createTempFile("plain-dai", ".mp3").apply { writeBytes(ByteArray(128)) }
         try {
             val jsonChapters = listOf(
@@ -200,7 +203,13 @@ class EpisodeProcessorTest {
             val unverified = resolveChaptersAndMetadata(ep, audio, null, 1_800_000L) { jsonChapters }
             assertFalse(unverified.skipAudioDecode)
             assertTrue(unverified.immediateSegments.isEmpty())
-            assertEquals(0.7f, unverified.deferredSegments[0].second, 0.0001f)
+            assertTrue(unverified.deferredSegments[0].second < AUTO_SKIP_CONFIDENCE)
+            val playbackDurationOnly = resolveChaptersAndMetadata(
+                ep.copy(durationMs = 1_800_000L, rssDurationMs = null), audio,
+                probedDurationMs = 1_800_000L, rssDurationMs = null
+            ) { jsonChapters }
+            assertFalse(playbackDurationOnly.skipAudioDecode)
+            assertTrue(playbackDurationOnly.deferredSegments.single().second < AUTO_SKIP_CONFIDENCE)
         } finally {
             audio.delete()
         }
@@ -329,5 +338,35 @@ class EpisodeProcessorTest {
         assertEquals("transcript", saved[1].source)
         assertEquals(100_000L, saved[1].startMs)
         assertEquals(TRANSCRIPT_CONFIDENCE, saved[1].confidence, 0.0001f)
+    }
+
+    @Test fun aConfirmedAdReplacesAnEarlierOverlappingManualSuggestion() = runBlocking {
+        val dao = FakeSegmentDao()
+        saveNewSegmentsScored(dao, "ep-1", listOf(Segment(10_000L, 50_000L) to 0.45f), "splice")
+        saveNewSegmentsScored(dao, "ep-1", listOf(Segment(20_000L, 40_000L) to 0.6f), "repeat")
+        val saved = dao.segments("ep-1").single()
+        assertEquals("repeat", saved.source)
+        assertEquals(20_000L, saved.startMs)
+        assertEquals(40_000L, saved.endMs)
+    }
+
+    @Test fun doesNotPromoteShiftedTimestampsEvenIfBothBoundariesAppearToMatch() {
+        val candidate = listOf(Segment(60_000L, 90_000L) to 0.4f)
+        val splice = Segment(59_000L, 91_000L) to 0.45f
+        assertEquals(candidate, corroborateWithSplices(candidate, listOf(splice), timestampsAligned = false))
+    }
+
+    @Test fun aPartialSpliceOverlapDoesNotConfirmTheWholeCandidate() {
+        val candidate = listOf(Segment(60_000L, 90_000L) to 0.4f)
+        val splice = Segment(75_000L, 105_000L) to 0.45f
+        assertEquals(candidate, corroborateWithSplices(candidate, listOf(splice), timestampsAligned = true))
+    }
+
+    @Test fun usesSpliceBoundariesWhenBothMatchTimedAdMetadata() {
+        val candidate = listOf(Segment(60_000L, 90_000L) to 0.4f)
+        val splice = Segment(59_000L, 91_000L)
+        val result = corroborateWithSplices(candidate, listOf(splice to 0.45f), timestampsAligned = true).single()
+        assertEquals(splice, result.first)
+        assertTrue(result.second >= AUTO_SKIP_CONFIDENCE)
     }
 }

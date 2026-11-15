@@ -68,6 +68,32 @@ interface LibraryDao {
     @Query("UPDATE podcasts SET artworkUrl = :url WHERE id = :id AND artworkUrl IS NULL") suspend fun setArtworkIfMissing(id: String, url: String)
     @Upsert suspend fun saveEpisode(episode: Episode)
     @Insert suspend fun saveSegments(segments: List<AdSegment>)
+
+    @Transaction
+    suspend fun saveNewSegments(episodeId: String, candidates: List<AdSegment>) {
+        val existing = segments(episodeId).toMutableList()
+        val fresh = ArrayList<AdSegment>(candidates.size)
+        // Preserve detector priority within each confidence tier.
+        for (candidate in candidates.sortedByDescending { it.confidence >= AUTO_SKIP_CONFIDENCE }) {
+            val confirmed = candidate.confidence >= AUTO_SKIP_CONFIDENCE
+            fun overlaps(other: AdSegment) = other.startMs < candidate.endMs && candidate.startMs < other.endMs
+            if (fresh.any(::overlaps) || existing.any { overlaps(it) && (!confirmed || it.confidence >= AUTO_SKIP_CONFIDENCE) }) {
+                continue
+            }
+            if (confirmed) {
+                val iterator = existing.iterator()
+                while (iterator.hasNext()) {
+                    val other = iterator.next()
+                    if (overlaps(other)) {
+                        deleteSegment(other.id)
+                        iterator.remove()
+                    }
+                }
+            }
+            fresh.add(candidate)
+        }
+        if (fresh.isNotEmpty()) saveSegments(fresh)
+    }
     @Query("SELECT * FROM podcasts ORDER BY title") fun observePodcasts(): Flow<List<Podcast>>
     @Query("SELECT * FROM podcasts WHERE id = :id") suspend fun podcast(id: String): Podcast?
     // Newest first. Episodes saved before publish dates were stored fall back to feed order, which is newest first.
@@ -91,7 +117,7 @@ interface LibraryDao {
     @Query("DELETE FROM episodes WHERE id = :id") suspend fun deleteEpisode(id: String)
 }
 
-@Database(entities = [Podcast::class, Episode::class, AdSegment::class], version = 7, exportSchema = false)
+@Database(entities = [Podcast::class, Episode::class, AdSegment::class], version = 8, exportSchema = false)
 abstract class LibraryDatabase : RoomDatabase() {
     abstract fun library(): LibraryDao
     companion object {
@@ -139,9 +165,20 @@ abstract class LibraryDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE episodes ADD COLUMN pscChaptersJson TEXT")
             }
         }
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Version 7 did not record why a 0.7 chapter or marker was promoted.
+                db.execSQL(
+                    """UPDATE ad_segments SET confidence = ?
+                       WHERE confidence >= 0.5 AND (source IN ('splice', 'acoustic', 'transcript')
+                          OR (source IN ('chapter', 'marker') AND confidence = ?))""",
+                    arrayOf(0.45f, 0.70f)
+                )
+            }
+        }
         @Volatile private var instance: LibraryDatabase? = null
         fun get(context: Context): LibraryDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, "unsplice.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build().also { instance = it }
+            instance ?: Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, "unsplice.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { instance = it }
         }
     }
 }

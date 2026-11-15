@@ -24,7 +24,7 @@ data class ScoredSegment(val segment: Segment, val score: Int)
 
 /**
  * Confidence stored for `transcript` segments. It is below [AUTO_SKIP_CONFIDENCE], so the player only offers a
- * "Skip ad" button, until the classifier's precision has been measured on real feeds. Raise it to auto-skip.
+ * "Skip ad" button unless both boundaries match a splice in the downloaded audio.
  */
 const val TRANSCRIPT_CONFIDENCE = 0.45f
 
@@ -166,21 +166,21 @@ fun sponsorReads(words: List<TranscriptWord>): List<ScoredSegment> {
 fun transcriptConfidence(score: Int) = if (score >= TRANSCRIPT_STRONG_SCORE) TRANSCRIPT_CONFIDENCE else TRANSCRIPT_WEAK_CONFIDENCE
 
 /**
- * Moves each edge of [segment] to the longest pause within [windowMs] of it. A pause is a run of at least
- * [minPauseFrames] frames quieter than a tenth of the median loudness around the edge, which separates the gap
- * between sections from the gap between words. The start edge moves to where speech resumes after the pause and
- * the end edge to where speech stops before it, so only the read itself is skipped. [envelope] holds one RMS
- * value per [frameMs] of audio.
+ * Moves each edge of [segment] to the longest pause within [windowMs] of it. A pause is at least 300 ms
+ * and two samples quieter than a tenth of the median loudness around the edge. The start moves to the end
+ * of its pause, and the end moves to the start of its pause. [envelope] holds [rateHz] samples per second.
  */
-fun refineEdges(segment: Segment, envelope: FloatArray, frameMs: Int = 100, windowMs: Long = 6_000, minPauseFrames: Int = 3): Segment {
-    if (envelope.isEmpty()) return segment
+fun refineEdges(segment: Segment, envelope: IntArray, rateHz: Int = 10, windowMs: Long = 6_000): Segment {
+    if (envelope.isEmpty() || rateHz <= 0) return segment
+    val minPauseFrames = maxOf(2, (300 * rateHz + 999) / 1000)
     fun snap(edgeMs: Long, isStart: Boolean): Long {
-        val centre = (edgeMs / frameMs).toInt()
-        val radius = (windowMs / frameMs).toInt()
+        val centre = (edgeMs * rateHz / 1000L).toInt()
+        val radius = (windowMs * rateHz / 1000L).toInt()
         val from = (centre - radius).coerceAtLeast(0)
         val to = (centre + radius).coerceAtMost(envelope.size - 1)
         if (from > to) return edgeMs
-        val sorted = (from..to).map { envelope[it] }.sorted()
+        val sorted = envelope.copyOfRange(from, to + 1)
+        sorted.sort()
         val threshold = sorted[sorted.size / 2] * 0.1f
         var bestFrom = -1
         var bestLength = 0
@@ -197,7 +197,7 @@ fun refineEdges(segment: Segment, envelope: FloatArray, frameMs: Int = 100, wind
             }
         }
         if (bestLength < minPauseFrames) return edgeMs
-        return (if (isStart) bestFrom + bestLength else bestFrom).toLong() * frameMs
+        return (if (isStart) bestFrom + bestLength else bestFrom) * 1000L / rateHz
     }
     val start = snap(segment.startMs, true)
     val end = snap(segment.endMs, false)

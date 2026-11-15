@@ -12,6 +12,40 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class LibraryDatabaseTest {
+    @Test fun updatingMakesPreviouslyUnverifiedDetectionsManual() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val name = "detector-migration-test.db"
+        context.deleteDatabase(name)
+        try {
+            val legacy = listOf("splice" to 0.75f, "acoustic" to 0.55f, "transcript" to 0.7f,
+                "marker" to 0.7f, "chapter" to 0.7f, "marker" to 0.9f, "chapter" to 0.85f, "repeat" to 0.6f)
+            val original = Room.databaseBuilder(context, LibraryDatabase::class.java, name).build()
+            try {
+                val dao = original.library()
+                dao.savePodcast(Podcast("p", "Show", "https://example.com/feed"))
+                dao.saveEpisode(Episode("e", "p", "One", "https://example.com/one.mp3", positionMs = 90_000L))
+                dao.saveSegments(legacy.mapIndexed { i, (source, confidence) ->
+                    AdSegment(episodeId = "e", startMs = i * 30_000L, endMs = i * 30_000L + 25_000L,
+                        source = source, confidence = confidence)
+                })
+            } finally { original.close() }
+            // Version 8 changes the saved data only; version 7 has the same schema.
+            SQLiteDatabase.openDatabase(context.getDatabasePath(name).path, null, SQLiteDatabase.OPEN_READWRITE).use {
+                it.version = 7
+            }
+            val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name)
+                .addMigrations(LibraryDatabase.MIGRATION_7_8).build()
+            try {
+                val dao = db.library()
+                val segments = dao.segments("e")
+                assertEquals(legacy.map { it.first }, segments.map { it.source })
+                assertTrue(segments.take(5).all { it.confidence < AUTO_SKIP_CONFIDENCE })
+                assertEquals(legacy.drop(5).map { it.second }, segments.drop(5).map { it.confidence })
+                assertEquals(90_000L, dao.episode("e")?.positionMs)
+            } finally { db.close() }
+        } finally { context.deleteDatabase(name) }
+    }
+
     @Test fun persistsEpisodesAndSegmentsForTheirPodcast() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(InstrumentationRegistry.getInstrumentation().targetContext, LibraryDatabase::class.java).build()
         try {
@@ -59,7 +93,7 @@ class LibraryDatabaseTest {
             db.execSQL("INSERT INTO ad_segments (episodeId, startMs, endMs) VALUES ('e', 200000, 220000)")
             db.version = 1
         }
-        val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name).addMigrations(LibraryDatabase.MIGRATION_1_2, LibraryDatabase.MIGRATION_2_3, LibraryDatabase.MIGRATION_3_4, LibraryDatabase.MIGRATION_4_5, LibraryDatabase.MIGRATION_5_6, LibraryDatabase.MIGRATION_6_7).build()
+        val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name).addMigrations(LibraryDatabase.MIGRATION_1_2, LibraryDatabase.MIGRATION_2_3, LibraryDatabase.MIGRATION_3_4, LibraryDatabase.MIGRATION_4_5, LibraryDatabase.MIGRATION_5_6, LibraryDatabase.MIGRATION_6_7, LibraryDatabase.MIGRATION_7_8).build()
         try {
             val segment = db.library().segments("e").single()
             assertEquals("repeat", segment.source)
@@ -97,7 +131,7 @@ class LibraryDatabaseTest {
             db.execSQL("INSERT INTO episodes VALUES ('e', 'p', 'One', 'https://example.com/one.mp3', '/saved.mp3', NULL, 'READY', NULL, NULL, 123)")
             db.version = 3
         }
-        val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name).addMigrations(LibraryDatabase.MIGRATION_3_4, LibraryDatabase.MIGRATION_4_5, LibraryDatabase.MIGRATION_5_6, LibraryDatabase.MIGRATION_6_7).build()
+        val db = Room.databaseBuilder(context, LibraryDatabase::class.java, name).addMigrations(LibraryDatabase.MIGRATION_3_4, LibraryDatabase.MIGRATION_4_5, LibraryDatabase.MIGRATION_5_6, LibraryDatabase.MIGRATION_6_7, LibraryDatabase.MIGRATION_7_8).build()
         try {
             assertEquals(false, db.library().podcast("p")?.autoSkip)
             assertNull(db.library().podcast("p")?.artworkUrl)

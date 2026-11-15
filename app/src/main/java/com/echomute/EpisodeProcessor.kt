@@ -3,11 +3,15 @@ package com.echomute
 import android.content.Context
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.BufferedOutputStream
 import java.io.File
+import java.io.IOException
+import kotlin.math.abs
 
 private val analysisSemaphore = Semaphore(1)
 
@@ -26,17 +30,27 @@ internal data class MarkerTarget(
     val rate: Int
 )
 
-internal fun isDaiShifted(actualDurationMs: Long?, rssDurationMs: Long?): Boolean {
-    if (actualDurationMs == null || rssDurationMs == null || actualDurationMs <= 0L || rssDurationMs <= 0L) return false
-    return !hasTrustedJsonChapters(actualDurationMs, rssDurationMs)
+internal fun corroborateWithSplices(
+    scored: List<Pair<Segment, Float>>,
+    spliceSegments: List<Pair<Segment, Float>>,
+    timestampsAligned: Boolean
+): List<Pair<Segment, Float>> {
+    if (!timestampsAligned || spliceSegments.isEmpty()) return scored
+    return scored.map { (segment, confidence) ->
+        if (confidence < 0.4f || confidence >= AUTO_SKIP_CONFIDENCE) return@map segment to confidence
+        val matches = spliceSegments.singleOrNull { (splice, _) ->
+            abs(splice.startMs - segment.startMs) <= 2_000L &&
+                abs(splice.endMs - segment.endMs) <= 2_000L
+        }
+        if (matches == null) segment to confidence else matches.first to 0.70f
+    }
 }
 
 private fun sponsorSegmentsWithConfidence(
     chapters: List<Chapter>,
     durationMs: Long?,
     baseConfidence: Float,
-    trusted: Boolean,
-    daiShifted: Boolean
+    trusted: Boolean
 ): List<Pair<Segment, Float>> {
     if (chapters.isEmpty()) return emptyList()
     val sorted = chapters.sortedBy { it.startMs }
@@ -46,11 +60,7 @@ private fun sponsorSegmentsWithConfidence(
         if (!isSponsorChapter(chapter)) continue
         val end = chapter.endMs ?: sorted.getOrNull(i + 1)?.startMs ?: durationMs ?: continue
         if (end <= chapter.startMs) continue
-        val conf = when {
-            daiShifted -> minOf(baseConfidence, 0.4f)
-            trusted -> sponsorConfidence(chapter, baseConfidence)
-            else -> baseConfidence
-        }
+        val conf = if (trusted) sponsorConfidence(chapter, baseConfidence) else baseConfidence
         out.add(Segment(chapter.startMs, end) to conf)
     }
     return out
@@ -70,7 +80,7 @@ internal fun resolveChaptersAndMetadata(
         Id3Metadata(emptyList())
     }
     val embeddedSegments = if (id3.chapters.isNotEmpty()) {
-        sponsorSegmentsWithConfidence(id3.chapters, effectiveDurationMs, 0.9f, trusted = true, daiShifted = false)
+        sponsorSegmentsWithConfidence(id3.chapters, effectiveDurationMs, 0.9f, trusted = true)
     } else emptyList()
 
     val cueFallbackSegments = id3.adBreakCuesMs.mapNotNull { cueMs ->
@@ -90,12 +100,7 @@ internal fun resolveChaptersAndMetadata(
     }
 
     val trusted = hasTrustedJsonChapters(probedDurationMs, rssDurationMs)
-    val daiShifted = isDaiShifted(probedDurationMs, rssDurationMs)
-    val baseConfidence = when {
-        trusted -> 0.85f
-        daiShifted -> 0.4f
-        else -> 0.7f
-    }
+    val baseConfidence = if (trusted) 0.85f else 0.4f
 
     val pscChapters = try {
         episode.pscChaptersJson?.let(::parseJsonChapters).orEmpty()
@@ -108,9 +113,9 @@ internal fun resolveChaptersAndMetadata(
         emptyList()
     }
 
-    val jsonSegments = sponsorSegmentsWithConfidence(jsonChapters, effectiveDurationMs, baseConfidence, trusted, daiShifted)
+    val jsonSegments = sponsorSegmentsWithConfidence(jsonChapters, effectiveDurationMs, baseConfidence, trusted)
     val pscSegments = if (jsonSegments.isEmpty()) {
-        sponsorSegmentsWithConfidence(pscChapters, effectiveDurationMs, baseConfidence, trusted, daiShifted)
+        sponsorSegmentsWithConfidence(pscChapters, effectiveDurationMs, baseConfidence, trusted)
     } else emptyList()
 
     val hasStructuredChapters = id3.chapters.isNotEmpty() || jsonChapters.isNotEmpty() || pscChapters.isNotEmpty()
@@ -242,14 +247,9 @@ suspend fun processEpisode(
         var fingerprintPath: String? = null
         try {
             reporter.beginStage("Checking ad markers and chapters")
-            val rssDurationMs = episode.rssDurationMs ?: episode.durationMs
+            val rssDurationMs = episode.rssDurationMs
             val probedDurationMs = try { probeAudioDurationMs(audio) } catch (_: Exception) { null }
-            if (probedDurationMs != null || episode.rssDurationMs == null && rssDurationMs != null) {
-                episode = episode.copy(
-                    durationMs = probedDurationMs ?: episode.durationMs,
-                    rssDurationMs = episode.rssDurationMs ?: rssDurationMs
-                )
-            }
+            if (probedDurationMs != null) episode = episode.copy(durationMs = probedDurationMs)
 
             val chapterRes = try {
                 resolveChaptersAndMetadata(episode, audio, probedDurationMs, rssDurationMs)
@@ -360,13 +360,15 @@ suspend fun processEpisode(
                 }
             }
 
-            val daiShifted = isDaiShifted(analysisDurationMs, rssDurationMs)
+            val timestampsAligned = hasTrustedJsonChapters(analysisDurationMs, rssDurationMs)
             val spliceSegments = if (!foundChapterSponsors && !foundMarkers) {
-                try {
-                    val rawSplices = Mp3SpliceDetector.detect(audio, analysisDurationMs, rssDurationMs)
-                    AcousticAdDetector.corroborateSegments(rawSplices, analysisEnvelope, envRate, daiShifted = false)
-                } catch (_: Exception) {
-                    emptyList()
+                analysisSemaphore.withPermit {
+                    val scanContext = currentCoroutineContext()
+                    try {
+                        Mp3SpliceDetector.detect(audio) { scanContext.ensureActive() }
+                    } catch (_: IOException) {
+                        emptyList()
+                    }
                 }
             } else emptyList()
 
@@ -386,47 +388,25 @@ suspend fun processEpisode(
                 }
             } else emptyList()
 
-            val refinedTranscript = AcousticAdDetector.refineTranscriptSegments(rawTranscriptSegments, analysisEnvelope, envRate)
-            val transcriptSegments = AcousticAdDetector.corroborateSegments(
-                refinedTranscript, analysisEnvelope, envRate, spliceSegments, daiShifted = daiShifted
+            val transcriptSegments = AcousticAdDetector.refineTranscriptSegments(
+                corroborateWithSplices(rawTranscriptSegments, spliceSegments, timestampsAligned),
+                analysisEnvelope, envRate, timestampsAligned
             )
-
-            val (highDeferred, rawLowDeferred) = chapterRes.deferredSegments.partition { it.second >= AUTO_SKIP_CONFIDENCE }
-            val lowDeferred = AcousticAdDetector.corroborateSegments(
-                rawLowDeferred, analysisEnvelope, envRate, spliceSegments, daiShifted = daiShifted
-            )
-            val cueFallbacks = AcousticAdDetector.corroborateSegments(
-                chapterRes.cueFallbackSegments, analysisEnvelope, envRate, spliceSegments, daiShifted = false
-            )
-            val acousticBreaks = if (!foundChapterSponsors && !foundMarkers && spliceSegments.isEmpty() && analysisEnvelope.isNotEmpty()) {
-                try {
-                    AcousticAdDetector.detectLoudnessJumpBreaks(analysisEnvelope, envRate, analysisDurationMs)
-                } catch (_: Exception) {
-                    emptyList()
-                }
+            val chapterSegments = corroborateWithSplices(chapterRes.deferredSegments, spliceSegments, timestampsAligned)
+            val cueFallbacks = corroborateWithSplices(chapterRes.cueFallbackSegments, spliceSegments, timestampsAligned)
+            val acousticBreaks = if (!foundChapterSponsors && !foundMarkers && !foundRepeat) {
+                AcousticAdDetector.detectLoudnessJumpBreaks(analysisEnvelope, envRate)
             } else emptyList()
 
-            if (highDeferred.isNotEmpty()) {
-                saveNewSegmentsScored(dao, episode.id, highDeferred, "chapter")
+            val candidates = buildList {
+                addAll(chapterSegments.asAdSegments(episode.id, "chapter"))
+                addAll(weakMarkerSegments.asAdSegments(episode.id, "marker"))
+                addAll(transcriptSegments.asAdSegments(episode.id, "transcript"))
+                addAll(cueFallbacks.asAdSegments(episode.id, "marker"))
+                addAll(spliceSegments.asAdSegments(episode.id, "splice"))
+                addAll(acousticBreaks.asAdSegments(episode.id, "acoustic"))
             }
-            if (spliceSegments.isNotEmpty()) {
-                saveNewSegmentsScored(dao, episode.id, spliceSegments, "splice")
-            }
-            if (transcriptSegments.isNotEmpty()) {
-                saveNewSegmentsScored(dao, episode.id, transcriptSegments, "transcript")
-            }
-            if (weakMarkerSegments.isNotEmpty()) {
-                saveNewSegmentsScored(dao, episode.id, weakMarkerSegments, "marker")
-            }
-            if (lowDeferred.isNotEmpty()) {
-                saveNewSegmentsScored(dao, episode.id, lowDeferred, "chapter")
-            }
-            if (cueFallbacks.isNotEmpty()) {
-                saveNewSegmentsScored(dao, episode.id, cueFallbacks, "marker")
-            }
-            if (!foundRepeat && acousticBreaks.isNotEmpty()) {
-                saveNewSegmentsScored(dao, episode.id, acousticBreaks, "acoustic")
-            }
+            if (candidates.isNotEmpty()) dao.saveNewSegments(episode.id, candidates)
         } finally {
             dao.saveEpisode(episode.copy(status = "READY", fingerprintPath = fingerprintPath))
         }
@@ -465,33 +445,15 @@ private suspend fun saveNewSegments(dao: LibraryDao, episodeId: String, segments
 }
 
 internal suspend fun saveNewSegmentsScored(
-    dao: LibraryDao,
-    episodeId: String,
-    scored: List<Pair<Segment, Float>>,
-    source: String
+    dao: LibraryDao, episodeId: String, scored: List<Pair<Segment, Float>>, source: String
 ) {
-    if (scored.isEmpty()) return
-    val existing = dao.segments(episodeId).sortedBy { it.startMs }
-    val sorted = scored.sortedBy { it.first.startMs }
-    val fresh = ArrayList<AdSegment>(sorted.size)
-    var idx = 0
-    for ((segment, confidence) in sorted) {
-        while (idx < existing.size && existing[idx].endMs <= segment.startMs) idx++
-        var overlaps = false
-        var probe = idx
-        while (probe < existing.size && existing[probe].startMs < segment.endMs) {
-            if (existing[probe].startMs < segment.endMs && segment.startMs < existing[probe].endMs) {
-                overlaps = true
-                break
-            }
-            probe++
-        }
-        if (!overlaps) {
-            fresh.add(AdSegment(episodeId = episodeId, startMs = segment.startMs, endMs = segment.endMs, source = source, confidence = confidence))
-        }
-    }
-    if (fresh.isNotEmpty()) dao.saveSegments(fresh)
+    if (scored.isNotEmpty()) dao.saveNewSegments(episodeId, scored.asAdSegments(episodeId, source))
 }
+
+private fun List<Pair<Segment, Float>>.asAdSegments(episodeId: String, source: String): List<AdSegment> =
+    map { (segment, confidence) ->
+        AdSegment(episodeId = episodeId, startMs = segment.startMs, endMs = segment.endMs, source = source, confidence = confidence)
+    }
 
 internal fun writePackedFingerprints(file: File, packed: LongArray) {
     BufferedOutputStream(file.outputStream(), 65536).use { out ->
