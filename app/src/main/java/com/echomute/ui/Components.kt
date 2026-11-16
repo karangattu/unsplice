@@ -3,14 +3,8 @@ package com.echomute
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -50,6 +44,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -68,6 +63,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -79,6 +75,8 @@ import androidx.compose.ui.unit.dp
 import java.io.IOException
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -120,7 +118,7 @@ internal fun PlaybackProgress(
             )
         }
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(6.dp)) {
+            Canvas(Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(6.dp).clearAndSetSemantics { }) {
                 val y = size.height / 2
                 drawLine(UnspliceTrack, Offset(0f, y), Offset(size.width, y), size.height, StrokeCap.Round)
                 if (fraction > 0) drawLine(UnspliceMint, Offset(0f, y), Offset(size.width * fraction, y), size.height, StrokeCap.Round)
@@ -190,7 +188,7 @@ internal fun PlaybackProgress(
 internal fun MiniPlaybackProgress(position: Long, duration: Long, segments: List<AdSegment>, autoSkip: Boolean = true) {
     if (duration <= 0) return
     val fraction = (position.toFloat() / duration).coerceIn(0f, 1f)
-    Canvas(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50))) {
+    Canvas(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50)).clearAndSetSemantics { }) {
         val y = size.height / 2
         drawLine(UnspliceTrack, Offset(0f, y), Offset(size.width, y), size.height, StrokeCap.Round)
         if (fraction > 0) drawLine(UnspliceMint, Offset(0f, y), Offset(size.width * fraction, y), size.height, StrokeCap.Round)
@@ -205,61 +203,49 @@ internal fun MiniPlaybackProgress(position: Long, duration: Long, segments: List
     }
 }
 
-/** Three bars that bounce continuously while audio plays and collapse to zero when it is paused. */
+/** Three bars that bounce while audio plays and settle to zero when it is paused. */
 @Composable
 internal fun PlayingEqualizer(playing: Boolean, modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "equalizer")
-    // Different ranges and durations keep the three bars out of sync like a real level meter.
     val bars = listOf(
-        transition.animateFloat(
-            initialValue = 0.25f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(440, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "equalizer-bar-0"
-        ),
-        transition.animateFloat(
-            initialValue = 0.9f,
-            targetValue = 0.32f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(620, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "equalizer-bar-1"
-        ),
-        transition.animateFloat(
-            initialValue = 0.4f,
-            targetValue = 0.85f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(520, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "equalizer-bar-2"
+        remember { Animatable(0f) },
+        remember { Animatable(0f) },
+        remember { Animatable(0f) }
+    )
+    LaunchedEffect(playing) {
+        if (!playing) {
+            bars.forEach { bar -> launch { bar.animateTo(0f, tween(180)) } }
+            return@LaunchedEffect
+        }
+        // Different ranges and durations keep the bars out of sync like a level meter.
+        val motions = listOf(
+            Triple(0.25f, 1f, 440),
+            Triple(0.9f, 0.32f, 620),
+            Triple(0.4f, 0.85f, 520)
         )
-    )
-    // Scales the whole meter to 1 while playing and to 0 when paused so the bars disappear.
-    val amplitude by animateFloatAsState(
-        targetValue = if (playing) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "equalizer-amplitude"
-    )
+        bars.forEachIndexed { index, bar ->
+            launch {
+                val (low, high, cycleMs) = motions[index]
+                var next = high
+                while (isActive) {
+                    bar.animateTo(next, tween(cycleMs / 2, easing = FastOutSlowInEasing))
+                    next = if (next == high) low else high
+                }
+            }
+        }
+    }
     Row(
         modifier = modifier.height(18.dp),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        bars.forEach { bar ->
+        bars.forEachIndexed { index, bar ->
             Box(
                 Modifier
                     .width(3.dp)
-                    .height(14.dp * (bar.value * amplitude).coerceIn(0f, 1f))
+                    .height(14.dp * bar.value.coerceIn(0f, 1f))
                     .clip(RoundedCornerShape(50))
                     .background(if (playing) UnspliceMint else UnspliceSlate)
+                    .testTag("equalizer-bar-$index")
             )
         }
     }

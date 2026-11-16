@@ -175,6 +175,7 @@ internal fun SettingsDialog(
     trimSilence: Boolean,
     voiceBoost: Boolean,
     autoDeletePlayed: Boolean,
+    autoDownloadLimit: Int,
     storageList: List<PodcastStorageUsage>,
     version: String?,
     update: AppRelease?,
@@ -184,6 +185,7 @@ internal fun SettingsDialog(
     onTrimSilenceChange: (Boolean) -> Unit,
     onVoiceBoostChange: (Boolean) -> Unit,
     onAutoDeleteChange: (Boolean) -> Unit,
+    onAutoDownloadLimitChange: () -> Unit,
     onClearPodcastStorage: (PodcastStorageUsage) -> Unit,
     onCheckForUpdates: () -> Unit,
     onDownloadUpdate: (AppRelease) -> Unit,
@@ -201,6 +203,11 @@ internal fun SettingsDialog(
                 SettingsSwitchRow("Trim silence globally", trimSilence, onTrimSilenceChange)
                 SettingsSwitchRow("Voice boost (volume leveling)", voiceBoost, onVoiceBoostChange)
                 SettingsSwitchRow("Delete episodes after playing", autoDeletePlayed, onAutoDeleteChange)
+                SettingValueRow(
+                    label = "Auto-download limit",
+                    value = if (autoDownloadLimit == 0) "Off" else "$autoDownloadLimit episodes",
+                    onClick = onAutoDownloadLimitChange
+                )
                 HorizontalDivider(color = UnspliceOutline)
                 Text("Downloaded storage", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                 if (storageList.isEmpty()) {

@@ -31,6 +31,16 @@ fun nextCycleInt(current: Int, options: List<Int>): Int {
     return if (idx < 0 || idx == options.lastIndex) options.first() else options[idx + 1]
 }
 
+const val AUTO_DOWNLOAD_LIMIT_KEY = "autoDownloadLimit"
+
+fun nextAutoDownloadLimit(current: Int): Int = when (current) {
+    0 -> 1
+    1 -> 2
+    2 -> 5
+    5 -> 10
+    else -> 0
+}
+
 fun nextCustomSpeed(current: Float?): Float? = when (current) {
     null -> 1.2f
     1.2f -> 1.5f
@@ -63,6 +73,13 @@ fun formatShowEpisodeCount(totalCount: Int, unplayedCount: Int): String {
     return if (unplayedCount > 0) "$epLabel \u2022 $unplayedCount unplayed" else "$epLabel \u2022 All played"
 }
 
+fun formatSleepLabel(sleepUntilMs: Long, endOfEpisode: Boolean, nowMs: Long = System.currentTimeMillis()): String =
+    when {
+        endOfEpisode -> "End of ep"
+        sleepUntilMs > nowMs -> "${((sleepUntilMs - nowMs + 59_999L) / 60_000L)}m"
+        else -> "Off"
+    }
+
 fun formatQueueSummary(upcomingCount: Int): String = when (upcomingCount) {
     0 -> "Your listening queue"
     1 -> "1 episode in queue"
@@ -79,6 +96,10 @@ fun queueSelectionMove(currentIndex: Int, targetIndex: Int): Pair<Int, Int>? =
  */
 fun newEpisodeInsertIndex(currentIndex: Int, mediaItemCount: Int): Int =
     if (currentIndex in 0 until mediaItemCount) currentIndex else mediaItemCount
+
+/** Insertion point for "play next": right after the current track, or at the end if nothing is playing. */
+fun playNextInsertIndex(currentIndex: Int, mediaItemCount: Int): Int =
+    if (currentIndex in 0 until mediaItemCount) currentIndex + 1 else mediaItemCount
 
 fun formatAdSegmentLabel(source: String): String = when (source) {
     "marker" -> "Ad break"

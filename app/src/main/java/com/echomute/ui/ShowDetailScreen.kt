@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -112,6 +113,7 @@ internal fun ShowDetailScreen(
     onScanAgain: (Episode) -> Unit,
     onOpenTranscript: (Episode) -> Unit,
     onPlayEpisode: (Episode) -> Unit,
+    onPlayNext: (Episode) -> Unit,
     onDownloadEpisode: (Episode) -> Unit,
     onCancelEpisode: (Episode) -> Unit,
     onAddToQueue: (Episode) -> Unit,
@@ -336,6 +338,7 @@ internal fun ShowDetailScreen(
                         onScanAgain = { onScanAgain(episode) },
                         onOpenTranscript = { onOpenTranscript(episode) },
                         onPlay = { onPlayEpisode(episode) },
+                        onPlayNext = { onPlayNext(episode) },
                         onDownload = { onDownloadEpisode(episode) },
                         onCancel = { onCancelEpisode(episode) },
                         onAddToQueue = { onAddToQueue(episode) },
@@ -365,6 +368,7 @@ private fun EpisodeCard(
     onScanAgain: () -> Unit,
     onOpenTranscript: () -> Unit,
     onPlay: () -> Unit,
+    onPlayNext: () -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onAddToQueue: () -> Unit,
@@ -672,6 +676,16 @@ private fun EpisodeCard(
                     }
                 }
                 Spacer(Modifier.weight(1f))
+                IconButton(
+                    modifier = Modifier.size(36.dp).testTag("play-next-${episode.title}"),
+                    onClick = onPlayNext
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.PlaylistPlay,
+                        contentDescription = "Play ${episode.title} next",
+                        tint = UnspliceIvory
+                    )
+                }
                 IconButton(
                     modifier = Modifier.testTag("add-${episode.title}"),
                     onClick = onAddToQueue

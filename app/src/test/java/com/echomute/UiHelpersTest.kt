@@ -120,4 +120,29 @@ class UiHelpersTest {
         assertEquals(0, newEpisodeInsertIndex(currentIndex = -1, mediaItemCount = 0))
         assertEquals(3, newEpisodeInsertIndex(currentIndex = -1, mediaItemCount = 3))
     }
+
+    @Test fun playNextInsertsRightAfterCurrentTrack() {
+        val queue = mutableListOf("a", "b", "c")
+        val insertAt = playNextInsertIndex(currentIndex = 0, mediaItemCount = queue.size)
+        assertEquals(1, insertAt)
+        queue.add(insertAt, "d")
+        assertEquals(listOf("a", "d", "b", "c"), queue)
+
+        // Last track in the queue means "play next" appends to the end.
+        assertEquals(3, playNextInsertIndex(currentIndex = 2, mediaItemCount = 3))
+        assertEquals(0, playNextInsertIndex(currentIndex = -1, mediaItemCount = 0))
+    }
+
+    @Test fun sleepLabelFormatsCountdownAndEndOfEpisode() {
+        assertEquals("End of ep", formatSleepLabel(0L, true, nowMs = 1_000L))
+        assertEquals("Off", formatSleepLabel(0L, false, nowMs = 1_000L))
+        assertEquals("1m", formatSleepLabel(30_000L, false, nowMs = 0L))
+        assertEquals("30m", formatSleepLabel(30 * 60_000L, false, nowMs = 0L))
+    }
+
+    @Test fun autoDownloadLimitCyclesThroughPresets() {
+        assertEquals(listOf(1, 2, 5, 10, 0), (0..4).fold(emptyList<Int>()) { acc, _ ->
+            acc + if (acc.isEmpty()) nextAutoDownloadLimit(0) else nextAutoDownloadLimit(acc.last())
+        })
+    }
 }

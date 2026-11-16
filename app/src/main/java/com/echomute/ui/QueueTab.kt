@@ -2,7 +2,10 @@ package com.echomute
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,11 +19,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
@@ -36,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,9 +58,11 @@ internal fun QueueTab(
     onPlayItem: (MediaItem) -> Unit,
     onMoveUp: (Int) -> Unit,
     onMoveDown: (Int) -> Unit,
+    onMoveItem: (Int, Int) -> Unit,
     onFinishItem: (Int, MediaItem) -> Unit,
     onRemoveItem: (Int) -> Unit
 ) {
+    val rowHeightPx = with(LocalDensity.current) { 92.dp.toPx() }
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
             Text("Up Next", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -79,13 +87,14 @@ internal fun QueueTab(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(upcoming.size) { index ->
-                    val item = upcoming[index]
+                itemsIndexed(upcoming, key = { _, item -> item.mediaId }) { index, item ->
                     val title = item.mediaMetadata.title?.toString().orEmpty()
                     val artist = item.mediaMetadata.artist?.toString().orEmpty()
                     val podcast = podcastsByTitle[artist]
                     val isCurrent = item.mediaId == currentId
                     var dragAccumulated by remember(item.mediaId) { mutableFloatStateOf(0f) }
+                    var reorderDragY by remember(item.mediaId) { mutableFloatStateOf(0f) }
+                    val canReorder = upcoming.size > 1
                     val swipeOffset = dragAccumulated.coerceIn(-120f, 0f)
                     Surface(
                         modifier = Modifier
@@ -108,9 +117,32 @@ internal fun QueueTab(
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Row(
-                            Modifier.fillMaxWidth().padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+                            Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            if (canReorder) {
+                                Icon(
+                                    Icons.Filled.DragIndicator,
+                                    contentDescription = "Drag $title to reorder",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .testTag("reorder-$title")
+                                        .draggable(
+                                            orientation = Orientation.Vertical,
+                                            state = rememberDraggableState { dy ->
+                                                reorderDragY += dy
+                                                val steps = (reorderDragY / rowHeightPx).toInt()
+                                                if (steps != 0) {
+                                                    val target = (index + steps).coerceIn(1, upcoming.lastIndex)
+                                                    if (target != index) onMoveItem(index, target)
+                                                    reorderDragY = 0f
+                                                }
+                                            }
+                                        )
+                                )
+                                Spacer(Modifier.width(6.dp))
+                            }
                             PodcastArtwork(
                                 title = artist.ifBlank { title },
                                 url = podcast?.artworkUrl,
@@ -118,7 +150,11 @@ internal fun QueueTab(
                                 cornerRadius = 10.dp
                             )
                             Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f).clickable { onPlayItem(item) }) {
+                            Column(
+                                Modifier
+                                    .weight(1f)
+                                    .clickable(onClickLabel = "Play $title") { onPlayItem(item) }
+                            ) {
                                 if (isCurrent) {
                                     Text(
                                         "CURRENT EPISODE",
