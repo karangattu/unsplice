@@ -18,7 +18,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v6.4.0
+      - uses: gradle/actions/setup-gradle@v6.4.1
       - name: Test version parsing
         run: tests/version_test.sh
       - name: Test and build
@@ -42,7 +42,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v6.4.0
+      - uses: gradle/actions/setup-gradle@v6.4.1
       - name: Read version
         run: scripts/version.sh "$GITHUB_REF_NAME" >> "$GITHUB_ENV"
       - name: Install APK verification tools
