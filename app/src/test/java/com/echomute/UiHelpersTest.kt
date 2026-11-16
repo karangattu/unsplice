@@ -104,4 +104,20 @@ class UiHelpersTest {
         assertNull(queueSelectionMove(currentIndex = 2, targetIndex = 0))
         assertNull(queueSelectionMove(currentIndex = -1, targetIndex = 0))
     }
+
+    @Test fun newEpisodeGoesOnTopAndPushesExistingIntoQueue() {
+        val queue = mutableListOf("a", "b", "c")
+        val insertAt = newEpisodeInsertIndex(currentIndex = 0, mediaItemCount = queue.size)
+        assertEquals(0, insertAt)
+        queue.add(insertAt, "d")
+        assertEquals(listOf("d", "a", "b", "c"), queue)
+        assertEquals("a", queue[insertAt + 1])
+
+        // With a current item in the middle, the new episode still lands right on top of it.
+        assertEquals(2, newEpisodeInsertIndex(currentIndex = 2, mediaItemCount = 4))
+
+        // Nothing playing yet (or an empty queue): append at the start.
+        assertEquals(0, newEpisodeInsertIndex(currentIndex = -1, mediaItemCount = 0))
+        assertEquals(3, newEpisodeInsertIndex(currentIndex = -1, mediaItemCount = 3))
+    }
 }

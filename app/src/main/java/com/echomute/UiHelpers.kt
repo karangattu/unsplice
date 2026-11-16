@@ -72,6 +72,14 @@ fun formatQueueSummary(upcomingCount: Int): String = when (upcomingCount) {
 fun queueSelectionMove(currentIndex: Int, targetIndex: Int): Pair<Int, Int>? =
     if (currentIndex >= 0 && targetIndex > currentIndex) targetIndex to currentIndex else null
 
+/**
+ * Insertion point for an episode that is not yet in the player queue.
+ * Placing it at the current index makes the new episode play now and pushes the
+ * previously current episode (and everything after it) down into Up Next.
+ */
+fun newEpisodeInsertIndex(currentIndex: Int, mediaItemCount: Int): Int =
+    if (currentIndex in 0 until mediaItemCount) currentIndex else mediaItemCount
+
 fun formatAdSegmentLabel(source: String): String = when (source) {
     "marker" -> "Ad break"
     "chapter" -> "Chapter"

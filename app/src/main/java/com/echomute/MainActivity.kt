@@ -213,7 +213,15 @@ private fun UnspliceApp() {
             return
         }
         val existing = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == episode.id }
-        val index = existing ?: player.mediaItemCount.also { player.addMediaItem(mediaItem(episode, podcast)) }
+        val index = if (existing != null) {
+            existing
+        } else {
+            // A newly tapped episode goes on top: it becomes current and the old
+            // current episode plus the rest of Up Next shift down into the queue.
+            val insertAt = newEpisodeInsertIndex(player.currentMediaItemIndex, player.mediaItemCount)
+            player.addMediaItem(insertAt, mediaItem(episode, podcast))
+            insertAt
+        }
         if (seekToMs > 0L) {
             player.seekTo(index, seekToMs)
         } else if (index != player.currentMediaItemIndex || player.playbackState == Player.STATE_ENDED) {
