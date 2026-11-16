@@ -40,7 +40,9 @@ suspend fun checkForUpdate(
     val checkedAt = prefs.getLong("checkedAt", 0)
     val cached = prefs.getString("version", null)?.let { version -> prefs.getString("apkUrl", null)?.let { AppRelease(version, it) } }
     val release = if (cached != null && now - checkedAt in 0 until minIntervalMs) cached else {
-        runCatching { parseLatestRelease(fetcher()) }.getOrNull()?.also {
+        runCatching { parseLatestRelease(fetcher()) }.onFailure { error ->
+            AppLog.w("AppUpdates", "Background update check failed", error)
+        }.getOrNull()?.also {
             prefs.edit().putLong("checkedAt", now).putString("version", it.version).putString("apkUrl", it.apkUrl).apply()
         }
     }
@@ -80,6 +82,7 @@ suspend fun checkForUpdateNow(
             else UpdateCheckResult.UpToDate
         }
     } catch (e: Exception) {
+        AppLog.w("AppUpdates", "Update check failed", e)
         UpdateCheckResult.Failed(e.message ?: "Could not reach GitHub")
     }
 }

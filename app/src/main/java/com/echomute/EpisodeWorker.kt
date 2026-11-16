@@ -20,7 +20,10 @@ fun shouldDeferAnalysis(charging: Boolean, audioPlaying: Boolean) = !charging &&
 
 class EpisodeWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
-        val episodeId = inputData.getString("episodeId") ?: return Result.failure()
+        val episodeId = inputData.getString("episodeId") ?: run {
+            AppLog.w("EpisodeWorker", "Download work started without an episode id")
+            return Result.failure()
+        }
         val manager = applicationContext.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("downloads", "Podcast downloads", NotificationManager.IMPORTANCE_LOW))
         val openApp = PendingIntent.getActivity(
@@ -66,7 +69,15 @@ class EpisodeWorker(context: Context, parameters: WorkerParameters) : CoroutineW
         } catch (e: CancellationException) {
             throw e
         } catch (e: java.io.IOException) {
-            if (runAttemptCount < 3) Result.retry() else Result.failure()
-        } catch (e: Exception) { Result.failure() }
+            AppLog.w("EpisodeWorker", "Download failed for $episodeId (attempt $runAttemptCount)", e)
+            if (runAttemptCount < 3) Result.retry() else {
+                UserMessages.show("Could not download the episode. Check your connection and retry.")
+                Result.failure()
+            }
+        } catch (e: Exception) {
+            AppLog.e("EpisodeWorker", "Preparing $episodeId failed", e)
+            UserMessages.show("Could not prepare the episode: ${e.message ?: "unknown error"}")
+            Result.failure()
+        }
     }
 }

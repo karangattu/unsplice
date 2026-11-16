@@ -109,7 +109,8 @@ internal fun resolveChaptersAndMetadata(
     }
     val jsonChapters = try {
         episode.chaptersUrl?.let(fetchJson).orEmpty()
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        AppLog.w("EpisodeProcessor", "Could not load chapter metadata for ${episode.id}", e)
         emptyList()
     }
 
@@ -298,7 +299,8 @@ suspend fun processEpisode(
                         throw e
                     } catch (e: CancellationException) {
                         throw e
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        AppLog.w("EpisodeProcessor", "Audio decoding failed for ${episode.id}", e)
                         null
                     }
 
@@ -383,7 +385,8 @@ suspend fun processEpisode(
                         filesDir = context.filesDir,
                         episodeId = episode.id
                     ).segments
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    AppLog.w("EpisodeProcessor", "Transcript ad detection failed for ${episode.id}", e)
                     emptyList()
                 }
             } else emptyList()
@@ -407,8 +410,10 @@ suspend fun processEpisode(
                 addAll(acousticBreaks.asAdSegments(episode.id, "acoustic"))
             }
             if (candidates.isNotEmpty()) dao.saveNewSegments(episode.id, candidates)
-        } finally {
             dao.saveEpisode(episode.copy(status = "READY", fingerprintPath = fingerprintPath))
+        } catch (e: Exception) {
+            AppLog.w("EpisodeProcessor", "Ad analysis failed for ${episode.id}", e)
+            throw e
         }
     } catch (e: CancellationException) {
         if (!audio.isFile) {
@@ -416,9 +421,8 @@ suspend fun processEpisode(
         }
         throw e
     } catch (e: Exception) {
-        if (!audio.isFile) {
-            dao.saveEpisode(episode.copy(status = "FAILED", error = e.message ?: "Download failed"))
-        }
+        AppLog.e("EpisodeProcessor", "Processing failed for ${episode.id}", e)
+        dao.saveEpisode(episode.copy(status = "FAILED", error = e.message ?: "Processing failed"))
         throw e
     } finally {
         EpisodeProgressTracker.clear(episodeId)

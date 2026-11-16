@@ -85,8 +85,9 @@ object DefaultSubscription {
                 else prefs.edit().putLong(podcast.id, now).apply()
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 // Retry failed feed requests on the next launch.
+                AppLog.w(TAG, "Could not refresh artwork for ${podcast.title}", e)
             }
         }
     }
@@ -105,15 +106,19 @@ object DefaultSubscription {
         val last = prefs.getLong("last", 0L)
         if (last > 0 && now >= last && now - last < minIntervalMs) return@withContext
         prefs.edit().putLong("last", now).apply()
+        var failures = 0
         for (podcast in dao.observePodcasts().first()) {
             try {
                 subscribeFeed(podcast.feedUrl, dao, fetcher)
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 // A feed that is down keeps its episodes until the next refresh.
+                failures++
+                AppLog.w(TAG, "Could not refresh feed ${podcast.title}", e)
             }
         }
+        if (failures > 0) UserMessages.show("$failures feed${if (failures == 1) "" else "s"} could not be refreshed")
     }
 
     suspend fun ensureDefaultSubscribed(
@@ -138,7 +143,10 @@ object DefaultSubscription {
         try {
             subscribeFeed(NEWS_JUNKIE_FEED_URL, dao, fetcher)
             prefs.edit().putBoolean("news_junkie_subscribed", true).apply()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Could not subscribe to the default feed", e)
         }
     }
+
+    private const val TAG = "DefaultSubscription"
 }

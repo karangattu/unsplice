@@ -14,6 +14,7 @@ data class PodcastSearchResult(
 )
 
 private val searchClient = OkHttpClient()
+private const val TAG = "PodcastSearch"
 
 fun parseSearchResults(jsonString: String): List<PodcastSearchResult> {
     val json = JSONObject(jsonString)
@@ -72,14 +73,18 @@ fun searchPodcasts(query: String, client: OkHttpClient = searchClient): List<Pod
                     }
                 }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Search request failed for $term", e)
+        }
     }
 
     if (resultsMap.isEmpty() && (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true))) {
         try {
             val feed = fetchFeed(trimmed)
             resultsMap[trimmed] = PodcastSearchResult(feed.title, "", trimmed)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Could not load feed at $trimmed", e)
+        }
     }
 
     val clean = trimmed.removePrefix("https://").removePrefix("http://").removePrefix("www.").trim().trimEnd('/')
