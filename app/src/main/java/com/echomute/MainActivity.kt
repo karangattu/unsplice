@@ -1,7 +1,6 @@
 package com.echomute
 
 import android.Manifest
-import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
 import android.os.Build
@@ -15,7 +14,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -36,14 +37,12 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,11 +54,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -68,6 +64,7 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -151,12 +148,18 @@ private fun UnspliceApp() {
     var smartFilter by rememberSaveable { mutableStateOf("New Releases") }
     var smartQuery by rememberSaveable { mutableStateOf("") }
 
-    var controller by remember { mutableStateOf<MediaController?>(null) }
-    var position by remember { mutableLongStateOf(0L) }
-    var duration by remember { mutableLongStateOf(0L) }
-    var playing by remember { mutableStateOf(false) }
-    var currentId by remember { mutableStateOf<String?>(null) }
-    var segments by remember { mutableStateOf(emptyList<AdSegment>()) }
+    val playback = remember(context) { PlaybackStateHolder(context) }
+    DisposableEffect(playback) {
+        playback.connect()
+        onDispose { playback.release() }
+    }
+
+    val controller by playback.controller.collectAsState()
+    val position by playback.position.collectAsState()
+    val duration by playback.duration.collectAsState()
+    val playing by playback.playing.collectAsState()
+    val currentId by playback.currentId.collectAsState()
+    val segments by playback.segments.collectAsState()
     var chapters by remember { mutableStateOf(emptyList<Chapter>()) }
     var showPlayerChapters by rememberSaveable { mutableStateOf(false) }
     var showPlayerAds by rememberSaveable { mutableStateOf(false) }
@@ -165,16 +168,17 @@ private fun UnspliceApp() {
     val effectsPrefs = remember { context.getSharedPreferences("audio_effects", android.content.Context.MODE_PRIVATE) }
     val statsPrefs = remember { context.getSharedPreferences("listening_stats", android.content.Context.MODE_PRIVATE) }
 
-    var trimSilence by remember { mutableStateOf(effectsPrefs.getBoolean("trimSilence", false)) }
-    var voiceBoost by remember { mutableStateOf(effectsPrefs.getBoolean("voiceBoost", false)) }
-    var autoDeletePlayed by remember { mutableStateOf(autoDeletePlayedEnabled(effectsPrefs)) }
-    var sleepLabel by remember { mutableStateOf("Off") }
-    var lastSkip by remember { mutableStateOf<String?>(null) }
-    var speed by remember { mutableFloatStateOf(1f) }
+    val trimSilence by playback.trimSilence.collectAsState()
+    val voiceBoost by playback.voiceBoost.collectAsState()
+    val autoDeletePlayed by playback.autoDeletePlayed.collectAsState()
+    val sleepLabel by playback.sleepLabel.collectAsState()
+    val lastSkip by playback.lastSkip.collectAsState()
+    val speed by playback.speed.collectAsState()
+    val queue by playback.queue.collectAsState()
+    val currentIndex by playback.currentIndex.collectAsState()
+    var autoDownloadLimit by remember { mutableStateOf(effectsPrefs.getInt(AUTO_DOWNLOAD_LIMIT_KEY, 2)) }
     var tab by remember { mutableStateOf("Library") }
     var playerExpanded by remember { mutableStateOf(false) }
-    var queue by remember { mutableStateOf(emptyList<MediaItem>()) }
-    var currentIndex by remember { mutableIntStateOf(0) }
     var oldestFirst by rememberSaveable { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     val appVersion = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
@@ -183,6 +187,10 @@ private fun UnspliceApp() {
     val updateDownload by updateFlow.collectAsState()
     var updateChecking by remember { mutableStateOf(false) }
     var updateStatus by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        UserMessages.messages.collect { message = it }
+    }
 
     LaunchedEffect(message) {
         val current = message ?: return@LaunchedEffect
@@ -248,6 +256,28 @@ private fun UnspliceApp() {
         }
     }
 
+    fun playNext(episode: Episode, podcast: Podcast) {
+        val player = controller ?: run {
+            message = "Player is starting. Try again."
+            return
+        }
+        val existing = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == episode.id }
+        if (existing != null) {
+            val target = if (player.currentMediaItemIndex < 0) {
+                player.mediaItemCount - 1
+            } else {
+                minOf(player.currentMediaItemIndex + 1, player.mediaItemCount - 1)
+            }
+            if (target >= 0) player.moveMediaItem(existing, target)
+            message = "Moved to play next"
+        } else {
+            val insertAt = playNextInsertIndex(player.currentMediaItemIndex, player.mediaItemCount)
+            player.addMediaItem(insertAt, mediaItem(episode, podcast))
+            prepareForPlayback(episode)
+            message = "Playing next"
+        }
+    }
+
     fun toggleEpisodeFinished(episode: Episode) {
         scope.launch {
             if (!episode.finished) {
@@ -302,75 +332,22 @@ private fun UnspliceApp() {
         update = checkForUpdate(context)
     }
 
-    LaunchedEffect(podcasts, allEpisodes) {
+    LaunchedEffect(podcasts, allEpisodes, autoDownloadLimit) {
         val autoDownloadPodcastIds = podcasts.filter { it.autoDownload }.map { it.id }.toSet()
-        if (autoDownloadPodcastIds.isNotEmpty()) {
+        if (autoDownloadPodcastIds.isNotEmpty() && autoDownloadLimit > 0) {
             allEpisodes
                 .filter { it.podcastId in autoDownloadPodcastIds && !it.finished && it.status == "NOT_DOWNLOADED" }
-                .take(2)
+                .take(autoDownloadLimit)
                 .forEach { enqueueEpisode(context, dao, it) }
         }
     }
 
-    DisposableEffect(context) {
-        val future = MediaController.Builder(context, SessionToken(context, ComponentName(context, PlaybackService::class.java))).buildAsync()
-        future.addListener({
-            if (!future.isCancelled) runCatching { future.get() }.onSuccess { player ->
-                controller = player
-                playing = player.isPlaying
-                queue = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
-                currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
-                player.addListener(object : Player.Listener {
-                    override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
-                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) { message = "Playback failed: ${error.message ?: "Try again"}" }
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        playing = player.isPlaying
-                        duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0
-                    }
-                    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
-                        queue = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
-                        currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
-                    }
-                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        currentId = mediaItem?.mediaId
-                        currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
-                    }
-                })
-            }
-        }, ContextCompat.getMainExecutor(context))
-        onDispose { MediaController.releaseFuture(future); controller = null }
-    }
+    val playbackFailure by playback.error.collectAsState()
 
     LaunchedEffect(currentId) {
         val id = currentId
         chapters = if (id == null) emptyList() else withContext(Dispatchers.IO) {
             readChapters(File(context.filesDir, "episodes/$id/chapters.tsv"))
-        }
-    }
-
-    LaunchedEffect(controller) {
-        while (true) {
-            controller?.let { player ->
-                withContext(Dispatchers.Main.immediate) {
-                    position = player.currentPosition
-                    duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0
-                    playing = player.isPlaying
-                    currentId = player.currentMediaItem?.mediaId
-                    queue = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
-                    currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
-                    speed = player.playbackParameters.speed
-                }
-                segments = currentId?.let { dao.segments(it) } ?: emptyList()
-                lastSkip = prefs.getString("episode", null)
-                val sleepUntil = prefs.getLong("sleepUntilEpochMs", 0L)
-                val sleepEoe = prefs.getBoolean("sleepEndOfEpisode", false)
-                sleepLabel = when {
-                    sleepEoe -> "End of ep"
-                    sleepUntil > System.currentTimeMillis() -> "${((sleepUntil - System.currentTimeMillis()) / 60_000L + 1)}m"
-                    else -> "Off"
-                }
-            }
-            delay(500)
         }
     }
 
@@ -448,7 +425,7 @@ private fun UnspliceApp() {
             try {
                 val results = withContext(Dispatchers.IO) { searchPodcasts(searchQuery) }
                 searchResults = results
-                if (results.isEmpty()) message = "No podcasts found"
+                if (results.isEmpty()) message = "No podcasts found. Check your connection or try a different search."
             } catch (e: Exception) {
                 message = e.message ?: "Search failed"
             } finally {
@@ -460,7 +437,15 @@ private fun UnspliceApp() {
     fun openTranscriptFor(episode: Episode) {
         scope.launch {
             val file = File(context.filesDir, "episodes/${episode.id}/transcript.tsv")
-            val words = withContext(Dispatchers.IO) { if (file.isFile) readTranscript(file) else emptyList() }
+            val words = withContext(Dispatchers.IO) {
+                if (!file.isFile) emptyList()
+                else try {
+                    readTranscript(file)
+                } catch (e: Exception) {
+                    AppLog.w("MainActivity", "Could not read transcript for ${episode.id}", e)
+                    emptyList()
+                }
+            }
             val grouped = groupTranscriptLines(words)
             if (grouped.isEmpty()) {
                 message = "No transcript available for this episode."
@@ -482,7 +467,6 @@ private fun UnspliceApp() {
     fun skipAdSegment(ad: AdSegment) {
         ListeningStatsStore.recordAdSkipped(statsPrefs, (ad.endMs - position).coerceAtLeast(0L))
         controller?.seekTo(ad.endMs)
-        position = ad.endMs
     }
 
     fun undoLastSkip() {
@@ -499,7 +483,6 @@ private fun UnspliceApp() {
             }
             if (id != null) dao.segments(id).filter { it.startMs == start }.forEach { dao.deleteSegment(it.id) }
             controller?.seekTo(start + 1)
-            lastSkip = null
         }
     }
 
@@ -510,10 +493,7 @@ private fun UnspliceApp() {
             lines = lines,
             currentPositionMs = if (currentId == epId) position else -1L,
             onSeek = { targetMs ->
-                if (currentId == epId) {
-                    controller?.seekTo(targetMs)
-                    position = targetMs
-                }
+                if (currentId == epId) controller?.seekTo(targetMs)
             },
             onMarkAd = { line ->
                 scope.launch {
@@ -548,23 +528,20 @@ private fun UnspliceApp() {
             trimSilence = trimSilence,
             voiceBoost = voiceBoost,
             autoDeletePlayed = autoDeletePlayed,
+            autoDownloadLimit = autoDownloadLimit,
             storageList = storageList,
             version = appVersion,
             update = update,
             updateChecking = updateChecking,
             updateStatus = updateStatus,
             updateDownload = updateDownload,
-            onTrimSilenceChange = {
-                trimSilence = it
-                effectsPrefs.edit { putBoolean("trimSilence", it) }
-            },
-            onVoiceBoostChange = {
-                voiceBoost = it
-                effectsPrefs.edit { putBoolean("voiceBoost", it) }
-            },
-            onAutoDeleteChange = {
-                autoDeletePlayed = it
-                effectsPrefs.edit { putBoolean(AUTO_DELETE_PLAYED_KEY, it) }
+            onTrimSilenceChange = { effectsPrefs.edit { putBoolean("trimSilence", it) } },
+            onVoiceBoostChange = { effectsPrefs.edit { putBoolean("voiceBoost", it) } },
+            onAutoDeleteChange = { effectsPrefs.edit { putBoolean(AUTO_DELETE_PLAYED_KEY, it) } },
+            onAutoDownloadLimitChange = {
+                val next = nextAutoDownloadLimit(autoDownloadLimit)
+                autoDownloadLimit = next
+                effectsPrefs.edit { putInt(AUTO_DOWNLOAD_LIMIT_KEY, next) }
             },
             onClearPodcastStorage = { usage ->
                 scope.launch {
@@ -629,6 +606,35 @@ private fun UnspliceApp() {
             },
             bottomBar = {
                 Column {
+                    val failure = playbackFailure
+                    if (failure != null) {
+                        Surface(color = UnspliceSurfaceBright, modifier = Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                                Text(
+                                    failure.message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                )
+                                TextButton(onClick = {
+                                    controller?.prepare()
+                                    controller?.play()
+                                    playback.clearError()
+                                }) { Text("Retry", color = UnspliceMint) }
+                                TextButton(onClick = {
+                                    val player = controller
+                                    val id = failure.mediaId
+                                    if (player != null && id != null) {
+                                        val index = (0 until player.mediaItemCount).firstOrNull {
+                                            player.getMediaItemAt(it).mediaId == id
+                                        }
+                                        if (index != null) player.removeMediaItem(index)
+                                    }
+                                    playback.clearError()
+                                }) { Text("Skip", color = UnspliceMint) }
+                            }
+                        }
+                    }
                     if (currentId != null && controller != null && !playerExpanded) {
                         MiniPlayerBar(
                             title = currentTitle,
@@ -710,6 +716,7 @@ private fun UnspliceApp() {
                             },
                             onMoveUp = { idx -> controller?.moveMediaItem(currentIndex + idx, currentIndex + idx - 1) },
                             onMoveDown = { idx -> controller?.moveMediaItem(currentIndex + idx, currentIndex + idx + 1) },
+                            onMoveItem = { from, to -> controller?.moveMediaItem(currentIndex + from, currentIndex + to) },
                             onFinishItem = { idx, item ->
                                 scope.launch {
                                     val ep = dao.episode(item.mediaId)
@@ -835,6 +842,7 @@ private fun UnspliceApp() {
                             onScanAgain = ::startDownload,
                             onOpenTranscript = ::openTranscriptFor,
                             onPlayEpisode = { ep -> playEpisode(ep, selected) },
+                            onPlayNext = { ep -> playNext(ep, selected) },
                             onDownloadEpisode = ::startDownload,
                             onCancelEpisode = { ep -> scope.launch { cancelEpisode(context, dao, ep) } },
                             onAddToQueue = { ep -> addToQueue(ep, selected) },
@@ -888,26 +896,11 @@ private fun UnspliceApp() {
                 }
             },
             onTogglePlayPause = ::togglePlayPause,
-            onSeek = { target ->
-                controller?.seekTo(target)
-                position = target
-            },
-            onStepSpeed = { delta ->
-                speed = stepSpeed(speed, delta)
-                controller?.setPlaybackSpeed(speed)
-            },
-            onCycleSpeed = {
-                speed = nextSpeedPreset(speed)
-                controller?.setPlaybackSpeed(speed)
-            },
-            onToggleTrimSilence = {
-                trimSilence = !trimSilence
-                effectsPrefs.edit { putBoolean("trimSilence", trimSilence) }
-            },
-            onToggleVoiceBoost = {
-                voiceBoost = !voiceBoost
-                effectsPrefs.edit { putBoolean("voiceBoost", voiceBoost) }
-            },
+            onSeek = { target -> controller?.seekTo(target) },
+            onStepSpeed = { delta -> controller?.setPlaybackSpeed(stepSpeed(speed, delta)) },
+            onCycleSpeed = { controller?.setPlaybackSpeed(nextSpeedPreset(speed)) },
+            onToggleTrimSilence = { effectsPrefs.edit { putBoolean("trimSilence", !trimSilence) } },
+            onToggleVoiceBoost = { effectsPrefs.edit { putBoolean("voiceBoost", !voiceBoost) } },
             onCycleSleepTimer = {
                 val now = System.currentTimeMillis()
                 val next = nextSleepTimerUpdate(
@@ -919,7 +912,6 @@ private fun UnspliceApp() {
                     putLong("sleepUntilEpochMs", next.untilEpochMs)
                     putBoolean("sleepEndOfEpisode", next.endOfEpisode)
                 }
-                sleepLabel = next.label
             },
             onToggleAutoSkip = {
                 playingPodcast?.let { pod ->
