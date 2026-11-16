@@ -23,6 +23,8 @@ jobs:
         run: tests/version_test.sh
       - name: Test and build
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug
+      - name: Lint
+        run: ./gradlew :app:lintDebug
       - name: Test native fingerprinting
         run: |
           c++ -O2 -std=c++17 tests/fingerprint_test.cpp app/src/main/cpp/fingerprint.cpp -o /tmp/unsplice-fingerprint-test
