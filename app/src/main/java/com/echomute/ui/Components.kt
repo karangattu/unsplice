@@ -3,9 +3,15 @@ package com.echomute
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -199,28 +205,59 @@ internal fun MiniPlaybackProgress(position: Long, duration: Long, segments: List
     }
 }
 
-/** Three springy bars that rise with a bounce while audio plays and settle when it is paused. */
+/** Three bars that bounce continuously while audio plays and collapse to zero when it is paused. */
 @Composable
 internal fun PlayingEqualizer(playing: Boolean, modifier: Modifier = Modifier) {
-    val heights = if (playing) listOf(0.55f, 1f, 0.72f) else listOf(0.22f, 0.22f, 0.22f)
+    val transition = rememberInfiniteTransition(label = "equalizer")
+    // Different ranges and durations keep the three bars out of sync like a real level meter.
+    val bars = listOf(
+        transition.animateFloat(
+            initialValue = 0.25f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(440, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "equalizer-bar-0"
+        ),
+        transition.animateFloat(
+            initialValue = 0.9f,
+            targetValue = 0.32f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(620, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "equalizer-bar-1"
+        ),
+        transition.animateFloat(
+            initialValue = 0.4f,
+            targetValue = 0.85f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(520, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "equalizer-bar-2"
+        )
+    )
+    // Scales the whole meter to 1 while playing and to 0 when paused so the bars disappear.
+    val amplitude by animateFloatAsState(
+        targetValue = if (playing) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "equalizer-amplitude"
+    )
     Row(
         modifier = modifier.height(18.dp),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        heights.forEachIndexed { index, target ->
-            val fraction by animateFloatAsState(
-                targetValue = target,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessLow
-                ),
-                label = "equalizer-bar-$index"
-            )
+        bars.forEach { bar ->
             Box(
                 Modifier
                     .width(3.dp)
-                    .height((14.dp * fraction).coerceAtLeast(2.dp))
+                    .height(14.dp * (bar.value * amplitude).coerceIn(0f, 1f))
                     .clip(RoundedCornerShape(50))
                     .background(if (playing) UnspliceMint else UnspliceSlate)
             )
