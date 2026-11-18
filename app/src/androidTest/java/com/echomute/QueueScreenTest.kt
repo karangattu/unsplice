@@ -61,6 +61,8 @@ class QueueScreenTest {
                         else MockResponse().setBody(Buffer().apply { repeat(100) { write(mp3) } })
                 }
                 compose.onNodeWithText("Discover").performClick()
+                compose.onNodeWithText("Feed URL").assertDoesNotExist()
+                compose.onNodeWithText("Add via RSS feed").performClick()
                 compose.onNodeWithText("Feed URL").performTextInput(server.url("/feed").toString())
                 compose.onNodeWithText("Subscribe").performClick()
                 compose.onNodeWithText("Library").performClick()

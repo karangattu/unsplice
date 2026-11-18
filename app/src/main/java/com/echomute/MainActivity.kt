@@ -932,7 +932,8 @@ private fun UnspliceApp() {
                 }
             },
             onToggleChapters = { showPlayerChapters = !showPlayerChapters },
-            onToggleAdsPanel = { showPlayerAds = !showPlayerAds },
+            onShowAdBreaks = { showPlayerAds = true },
+            onDismissAdBreaks = { showPlayerAds = false },
             onOpenTranscript = { playingEpisode?.let(::openTranscriptFor) },
             onToggleChapterSkip = { ch, chEnd, skippedSeg ->
                 val id = currentId ?: return@NowPlayingSheet

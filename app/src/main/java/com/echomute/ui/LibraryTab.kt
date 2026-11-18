@@ -80,18 +80,11 @@ internal fun LibraryTab(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Library", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     if (!version.isNullOrBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = UnspliceSurfaceElevated,
-                            border = BorderStroke(1.dp, UnspliceOutline)
-                        ) {
-                            Text(
-                                "v$version",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                        }
+                        Text(
+                            "v$version",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
                 if (podcasts.isNotEmpty()) {

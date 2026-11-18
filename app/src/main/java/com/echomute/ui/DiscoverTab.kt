@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -28,7 +30,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -50,15 +57,10 @@ internal fun DiscoverTab(
     onSubscribeFeed: (String) -> Unit,
     onOpenSubscribed: (Podcast) -> Unit
 ) {
+    var showFeedForm by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
             Text("Discover", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "Search podcasts or subscribe with an RSS feed link",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp)
-            )
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 UnspliceSearchField(
@@ -79,12 +81,68 @@ internal fun DiscoverTab(
                     Text(if (searching) "Searching…" else "Search", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
+            TextButton(
+                onClick = { showFeedForm = !showFeedForm },
+                contentPadding = PaddingValues(horizontal = 4.dp)
+            ) {
+                Icon(Icons.Filled.RssFeed, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Add via RSS feed")
+                Icon(
+                    if (showFeedForm) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = null
+                )
+            }
         }
         LazyColumn(
             Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (showFeedForm) {
+                item(key = "rss-card") {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = UnspliceSurface,
+                        border = BorderStroke(1.dp, UnspliceOutline),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                "Paste any podcast RSS or Atom feed URL to subscribe directly.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = feedUrl,
+                                onValueChange = onFeedUrlChange,
+                                label = { Text("Feed URL") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { if (!loading && feedUrl.isNotBlank()) onSubscribeFeed(feedUrl) }),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = UnspliceMint,
+                                    focusedLabelColor = UnspliceMint,
+                                    unfocusedBorderColor = UnspliceOutline,
+                                    focusedContainerColor = UnspliceMidnight,
+                                    unfocusedContainerColor = UnspliceMidnight
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Button(
+                                enabled = !loading && feedUrl.isNotBlank(),
+                                onClick = { onSubscribeFeed(feedUrl) },
+                                shape = RoundedCornerShape(22.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = UnspliceMint, contentColor = UnspliceOnMint),
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text(if (loading) "Loading…" else "Subscribe", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                            }
+                        }
+                    }
+                }
+            }
             if (searchResults.isNotEmpty()) {
                 item(key = "results-header") {
                     Text(
@@ -152,52 +210,7 @@ internal fun DiscoverTab(
                     }
                 }
             }
-            item(key = "rss-card") {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = UnspliceSurface,
-                    border = BorderStroke(1.dp, UnspliceOutline),
-                    modifier = Modifier.fillMaxWidth().padding(top = if (searchResults.isNotEmpty()) 6.dp else 0.dp)
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Filled.RssFeed, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(20.dp))
-                            Text("Add via RSS feed", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        }
-                        Text(
-                            "Paste any podcast RSS or Atom feed URL to subscribe directly.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedTextField(
-                            value = feedUrl,
-                            onValueChange = onFeedUrlChange,
-                            label = { Text("Feed URL") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = { if (!loading && feedUrl.isNotBlank()) onSubscribeFeed(feedUrl) }),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = UnspliceMint,
-                                focusedLabelColor = UnspliceMint,
-                                unfocusedBorderColor = UnspliceOutline,
-                                focusedContainerColor = UnspliceMidnight,
-                                unfocusedContainerColor = UnspliceMidnight
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Button(
-                            enabled = !loading && feedUrl.isNotBlank(),
-                            onClick = { onSubscribeFeed(feedUrl) },
-                            shape = RoundedCornerShape(22.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = UnspliceMint, contentColor = UnspliceOnMint),
-                            modifier = Modifier.align(Alignment.End)
-                        ) {
-                            Text(if (loading) "Loading…" else "Subscribe", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                        }
-                    }
-                }
-            }
+
         }
     }
 }

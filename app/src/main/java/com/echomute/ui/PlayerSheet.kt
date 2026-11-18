@@ -1,5 +1,6 @@
 package com.echomute
 
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -30,10 +31,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FastForward
@@ -47,6 +50,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -57,11 +61,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -72,11 +79,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 
 @Composable
 internal fun MiniPlayerBar(
@@ -208,6 +218,7 @@ internal fun MiniPlayerBar(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NowPlayingSheet(
     visible: Boolean,
@@ -243,7 +254,8 @@ internal fun NowPlayingSheet(
     onCycleSleepTimer: () -> Unit,
     onToggleAutoSkip: () -> Unit,
     onToggleChapters: () -> Unit,
-    onToggleAdsPanel: () -> Unit,
+    onShowAdBreaks: () -> Unit,
+    onDismissAdBreaks: () -> Unit,
     onOpenTranscript: () -> Unit,
     onToggleChapterSkip: (Chapter, Long, AdSegment?) -> Unit,
     onKeepSegment: (AdSegment) -> Unit,
@@ -315,21 +327,7 @@ internal fun NowPlayingSheet(
                             Modifier.weight(1f),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text(
-                                "NOW PLAYING",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = UnspliceMint,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (artistName.isNotBlank()) {
-                                Text(
-                                    artistName,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                            Text("Now Playing", style = MaterialTheme.typography.titleMedium)
                         }
                         Spacer(Modifier.size(48.dp))
                     }
@@ -337,7 +335,7 @@ internal fun NowPlayingSheet(
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(240.dp)
+                            .size(212.dp)
                             .background(
                                 Brush.radialGradient(
                                     listOf(UnspliceMint.copy(alpha = 0.16f), Color.Transparent)
@@ -348,7 +346,7 @@ internal fun NowPlayingSheet(
                         PodcastArtwork(
                             title = artistName.ifBlank { title },
                             url = artworkUrl,
-                            size = 212.dp,
+                            size = 204.dp,
                             cornerRadius = 20.dp
                         )
                     }
@@ -358,7 +356,7 @@ internal fun NowPlayingSheet(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
-                        maxLines = 2,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
                     if (artistName.isNotBlank()) {
@@ -417,6 +415,36 @@ internal fun NowPlayingSheet(
                     }
                     Spacer(Modifier.height(20.dp))
                     PlaybackProgress(position, duration, segments, chapters, autoSkip, onSeek)
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        onClick = onShowAdBreaks,
+                        shape = RoundedCornerShape(14.dp),
+                        color = UnspliceSurface,
+                        border = BorderStroke(1.dp, UnspliceOutline),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Filled.FastForward, contentDescription = null, tint = UnspliceAmber)
+                            Column(Modifier.weight(1f)) {
+                                Text("Ad breaks", style = MaterialTheme.typography.labelLarge)
+                                Text(
+                                    remember(segments, autoSkip) { formatAdSummary(segments, autoSkip) }
+                                        ?: "Review or scan for ads",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(16.dp))
                     Row(
                         Modifier.fillMaxWidth(),
@@ -512,23 +540,9 @@ internal fun NowPlayingSheet(
                                     leadingIcon = { Icon(Icons.Filled.Shield, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                     label = { Text(if (autoSkip) "Auto-skip: ON" else "Auto-skip: OFF", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
                                     colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = UnspliceAmberContainer,
-                                        selectedLabelColor = UnspliceAmber,
-                                        selectedLeadingIconColor = UnspliceAmber
-                                    )
-                                )
-                                FilterChip(
-                                    selected = showPlayerAds,
-                                    onClick = onToggleAdsPanel,
-                                    leadingIcon = { Icon(Icons.Filled.FastForward, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                    label = {
-                                        val label = if (segments.isNotEmpty()) "Ad breaks (${segments.size})" else "Ad breaks"
-                                        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
-                                    },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = UnspliceAmberContainer,
-                                        selectedLabelColor = UnspliceAmber,
-                                        selectedLeadingIconColor = UnspliceAmber
+                                        selectedContainerColor = UnspliceMintContainer,
+                                        selectedLabelColor = UnspliceMint,
+                                        selectedLeadingIconColor = UnspliceMint
                                     )
                                 )
                                 FilterChip(
@@ -573,122 +587,6 @@ internal fun NowPlayingSheet(
                                         leadingIcon = { Icon(Icons.Filled.Subtitles, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                         label = { Text("Transcript", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) }
                                     )
-                                }
-                            }
-                        }
-                    }
-                    if (showPlayerAds) {
-                        Spacer(Modifier.height(14.dp))
-                        val isScanning = episodeProgress != null || episodeStatus in listOf("QUEUED", "DOWNLOADING", "PROCESSING")
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = UnspliceSurface,
-                            border = BorderStroke(1.dp, UnspliceOutline),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(
-                                            "AD BREAKS",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = UnspliceAmber,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            if (autoSkip) "Auto-skip enabled for this show" else "Auto-skip disabled • manual skip only",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (!isScanning && episodeStatus != null) {
-                                        TextButton(
-                                            onClick = onScanAds,
-                                            contentPadding = PaddingValues(horizontal = 8.dp)
-                                        ) {
-                                            Icon(Icons.Filled.Refresh, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(16.dp))
-                                            Spacer(Modifier.width(4.dp))
-                                            Text("Scan again", color = UnspliceMint, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
-                                        }
-                                    }
-                                }
-                                if (isScanning) {
-                                    val scanLabel = episodeProgress?.summary() ?: when (episodeStatus) {
-                                        "PROCESSING" -> "Finding ads…"
-                                        "DOWNLOADING" -> "Downloading episode…"
-                                        else -> "Queued for ad scan…"
-                                    }
-                                    Text(scanLabel, style = MaterialTheme.typography.bodySmall, color = UnspliceMint, fontWeight = FontWeight.Medium)
-                                    if (episodeProgress?.percent != null) {
-                                        LinearProgressIndicator(
-                                            progress = { (episodeProgress.percent / 100f).coerceIn(0f, 1f) },
-                                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)),
-                                            color = UnspliceMint,
-                                            trackColor = UnspliceTrack
-                                        )
-                                    } else {
-                                        LinearProgressIndicator(
-                                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)),
-                                            color = UnspliceMint,
-                                            trackColor = UnspliceTrack
-                                        )
-                                    }
-                                } else if (segments.isEmpty()) {
-                                    Text(
-                                        "No ad breaks detected yet for this episode.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                } else {
-                                    segments.forEachIndexed { idx, seg ->
-                                        if (idx > 0) HorizontalDivider(color = UnspliceOutline)
-                                        val isCurrentSeg = position >= seg.startMs && position < seg.endMs
-                                        val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) " • manual skip" else ""
-                                        Row(
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(if (isCurrentSeg) UnspliceAmberContainer else Color.Transparent)
-                                                .clickable { onSeek(seg.startMs) }
-                                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(Modifier.weight(1f).padding(end = 6.dp)) {
-                                                Text(
-                                                    "${formatTime(seg.startMs)} – ${formatTime(seg.endMs)}",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = if (isCurrentSeg) UnspliceAmber else UnspliceIvory,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    softWrap = false
-                                                )
-                                                Text(
-                                                    "${formatAdSegmentLabel(seg.source)}$manual",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                            IconButton(
-                                                onClick = { onSkipAd(seg) },
-                                                modifier = Modifier.size(34.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Filled.SkipNext,
-                                                    contentDescription = "Skip past ad segment",
-                                                    tint = UnspliceAmber,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                            TextButton(
-                                                onClick = { onKeepSegment(seg) },
-                                                contentPadding = PaddingValues(horizontal = 8.dp)
-                                            ) {
-                                                Text("Keep", style = MaterialTheme.typography.labelSmall, color = UnspliceMint, maxLines = 1, softWrap = false)
-                                            }
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -751,6 +649,137 @@ internal fun NowPlayingSheet(
                         }
                     }
                     Spacer(Modifier.height(16.dp))
+                }
+            }
+        }
+        if (visible && showPlayerAds) {
+            val isScanning = episodeProgress != null || episodeStatus in listOf("QUEUED", "DOWNLOADING", "PROCESSING")
+            ModalBottomSheet(
+                onDismissRequest = onDismissAdBreaks,
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                containerColor = UnspliceSurface,
+                contentColor = UnspliceIvory
+            ) {
+                val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+                SideEffect {
+                    window?.let {
+                        WindowCompat.getInsetsController(it, it.decorView).apply {
+                            isAppearanceLightStatusBars = false
+                            isAppearanceLightNavigationBars = false
+                        }
+                        if (Build.VERSION.SDK_INT >= 29) it.isNavigationBarContrastEnforced = false
+                    }
+                }
+                Column(
+                    Modifier.fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Ad breaks",
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                            Text(
+                                if (autoSkip) "Auto-skip enabled for this show" else "Auto-skip disabled • manual skip only",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = onDismissAdBreaks) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close ad breaks")
+                        }
+                    }
+                    if (!isScanning && episodeStatus != null) {
+                        TextButton(
+                            onClick = onScanAds,
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Scan again")
+                        }
+                    }
+                    if (isScanning) {
+                        val scanLabel = episodeProgress?.summary() ?: when (episodeStatus) {
+                            "PROCESSING" -> "Finding ads…"
+                            "DOWNLOADING" -> "Downloading episode…"
+                            else -> "Queued for ad scan…"
+                        }
+                        Text(scanLabel, style = MaterialTheme.typography.bodySmall, color = UnspliceMint, fontWeight = FontWeight.Medium)
+                        if (episodeProgress?.percent != null) {
+                            LinearProgressIndicator(
+                                progress = { (episodeProgress.percent / 100f).coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)),
+                                color = UnspliceMint,
+                                trackColor = UnspliceTrack
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)),
+                                color = UnspliceMint,
+                                trackColor = UnspliceTrack
+                            )
+                        }
+                    } else if (segments.isEmpty()) {
+                        Text(
+                            "No ad breaks detected yet for this episode.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        segments.forEachIndexed { idx, seg ->
+                            if (idx > 0) HorizontalDivider(color = UnspliceOutline)
+                            val isCurrentSeg = position >= seg.startMs && position < seg.endMs
+                            val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) " • manual skip" else ""
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isCurrentSeg) UnspliceAmberContainer else Color.Transparent)
+                                    .clickable { onSeek(seg.startMs) }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f).padding(end = 6.dp)) {
+                                    Text(
+                                        "${formatTime(seg.startMs)} – ${formatTime(seg.endMs)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isCurrentSeg) UnspliceAmber else UnspliceIvory,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                    Text(
+                                        "${formatAdSegmentLabel(seg.source)}$manual",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onSkipAd(seg) },
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.SkipNext,
+                                        contentDescription = "Skip past ad segment",
+                                        tint = UnspliceAmber,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { onKeepSegment(seg) },
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Text("Keep", style = MaterialTheme.typography.labelSmall, color = UnspliceMint, maxLines = 1, softWrap = false)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

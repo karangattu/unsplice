@@ -122,11 +122,11 @@ fun formatCompactDuration(ms: Long): String {
 
 fun formatAdSummary(segments: List<AdSegment>, autoSkip: Boolean = true): String? {
     if (segments.isEmpty()) return null
-    val skippedMs = if (autoSkip) segments.filter { it.confidence >= AUTO_SKIP_CONFIDENCE }.sumOf { (it.endMs - it.startMs).coerceAtLeast(0) } else 0L
+    val autoSkipMs = if (autoSkip) segments.filter { it.confidence >= AUTO_SKIP_CONFIDENCE }.sumOf { (it.endMs - it.startMs).coerceAtLeast(0) } else 0L
     val totalMs = segments.sumOf { (it.endMs - it.startMs).coerceAtLeast(0) }
-    val countLabel = "${segments.size} ad segment(s) detected"
+    val countLabel = if (segments.size == 1) "1 ad break detected" else "${segments.size} ad breaks detected"
     return when {
-        skippedMs > 0 -> "$countLabel \u2022 ${formatCompactDuration(skippedMs)} skipped"
+        autoSkipMs > 0 -> "$countLabel \u2022 ${formatCompactDuration(autoSkipMs)} set to skip"
         totalMs > 0 -> "$countLabel \u2022 ${formatCompactDuration(totalMs)} total"
         else -> countLabel
     }

@@ -105,7 +105,6 @@ internal fun PlaybackProgress(
     val shownPosition = scrubPosition ?: position
     val fraction = (shownPosition.toFloat() / duration).coerceIn(0f, 1f)
     val activeChapter = remember(chapters, shownPosition, duration) { currentChapter(chapters, shownPosition, duration) }
-    val adSummary = remember(segments, autoSkip) { formatAdSummary(segments, autoSkip) }
     Column {
         if (activeChapter != null && activeChapter.title.isNotBlank()) {
             Text(
@@ -160,26 +159,6 @@ internal fun PlaybackProgress(
         ) {
             Text(formatTime(shownPosition), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(formatTime(duration), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (adSummary != null) {
-            Spacer(Modifier.height(6.dp))
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = UnspliceAmberContainer,
-                    border = BorderStroke(1.dp, UnspliceAmber.copy(alpha = 0.35f))
-                ) {
-                    Text(
-                        adSummary,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = UnspliceAmber,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                    )
-                }
-            }
         }
     }
 }

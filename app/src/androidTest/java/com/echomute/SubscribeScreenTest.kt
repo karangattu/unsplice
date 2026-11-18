@@ -32,6 +32,7 @@ class SubscribeScreenTest {
             val mp3 = InstrumentationRegistry.getInstrumentation().context.assets.open("tone.mp3").use { it.readBytes() }
             server.enqueue(MockResponse().setBody(Buffer().write(mp3)))
             compose.onNodeWithText("Discover").performClick()
+            compose.onNodeWithText("Add via RSS feed").performClick()
             compose.onNodeWithText("Feed URL").performTextInput(server.url("/feed").toString())
             compose.onNodeWithText("Subscribe").performClick()
             compose.onNodeWithText("Library").performClick()
@@ -61,6 +62,7 @@ class SubscribeScreenTest {
                 val mp3 = instrumentation.context.assets.open("tone.mp3").use { it.readBytes() }
                 server.enqueue(MockResponse().setBody(Buffer().write(mp3)))
                 compose.onNodeWithText("Discover").performClick()
+                compose.onNodeWithText("Add via RSS feed").performClick()
                 compose.onNodeWithText("Feed URL").performTextInput(server.url("/feed").toString())
                 compose.onNodeWithText("Subscribe").performClick()
                 compose.onNodeWithText("Library").performClick()

@@ -67,12 +67,6 @@ internal fun FiltersTab(
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
             Text("Filters", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "Smart views across all your shows",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp)
-            )
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -142,19 +136,32 @@ internal fun FiltersTab(
                                 PodcastArtwork(pod?.title ?: ep.title, pod?.artworkUrl, size = 46.dp, cornerRadius = 10.dp)
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text(ep.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    val meta = listOfNotNull(
-                                        pod?.title,
-                                        ep.publishedAt?.let(::formatPublished),
-                                        progressLabel(ep.positionMs, ep.durationMs, ep.finished)
-                                    )
                                     Text(
-                                        meta.joinToString(" \u2022 "),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
+                                        ep.title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    ep.publishedAt?.let { publishedAt ->
+                                        Text(
+                                            formatPublished(publishedAt),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    val meta = listOfNotNull(
+                                        progressLabel(ep.positionMs, ep.durationMs, ep.finished),
+                                        pod?.title
+                                    )
+                                    if (meta.isNotEmpty()) {
+                                        Text(
+                                            meta.joinToString(" \u2022 "),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                                 IconButton(onClick = { onToggleStar(ep) }) {
                                     Icon(

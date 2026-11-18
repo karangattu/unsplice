@@ -86,14 +86,15 @@ class EpisodeProgressTest {
         }
     }
 
-    @Test fun formatsAdSummaryWithTotalTimeSaved() {
+    @Test fun formatsAdSummaryWithTimeEligibleForAutoSkip() {
         assertNull(formatAdSummary(emptyList(), autoSkip = true))
         val segments = listOf(
             AdSegment(id = 1, episodeId = "e1", startMs = 10_000, endMs = 70_000, source = "marker", confidence = 0.9f),
             AdSegment(id = 2, episodeId = "e1", startMs = 120_000, endMs = 150_000, source = "transcript", confidence = 0.45f)
         )
-        assertEquals("2 ad segment(s) detected \u2022 1m skipped", formatAdSummary(segments, autoSkip = true))
-        assertEquals("2 ad segment(s) detected \u2022 1m 30s total", formatAdSummary(segments, autoSkip = false))
+        assertEquals("2 ad breaks detected \u2022 1m set to skip", formatAdSummary(segments, autoSkip = true))
+        assertEquals("2 ad breaks detected \u2022 1m 30s total", formatAdSummary(segments, autoSkip = false))
+        assertEquals("1 ad break detected \u2022 30s total", formatAdSummary(listOf(segments.last())))
     }
 
     @Test fun filtersAndSortsEpisodesByQueryAndState() {
