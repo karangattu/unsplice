@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.FilterList
@@ -114,6 +115,7 @@ private fun UnspliceApp() {
     val podcastsByTitle = remember(podcasts) { podcasts.associateBy { it.title } }
     val episodesById = remember(allEpisodes) { allEpisodes.associateBy { it.id } }
     val unplayedCounts = remember(allEpisodes) { unplayedCountsByPodcast(allEpisodes) }
+    val latestPublished = remember(allEpisodes) { latestPublishedByPodcast(allEpisodes) }
     val activeProgressMap by EpisodeProgressTracker.progress.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
@@ -605,6 +607,7 @@ private fun UnspliceApp() {
                 SnackbarHost(snackbarHostState) { data ->
                     Snackbar(
                         snackbarData = data,
+                        shape = RoundedCornerShape(14.dp),
                         containerColor = UnspliceSurfaceBright,
                         contentColor = UnspliceIvory,
                         actionColor = UnspliceMint
@@ -660,7 +663,7 @@ private fun UnspliceApp() {
                             onUndoSkip = ::undoLastSkip
                         )
                     }
-                    HorizontalDivider(color = UnspliceOutline, thickness = 1.dp)
+                    HorizontalDivider(color = UnspliceHairline, thickness = 0.8.dp)
                     NavigationBar(containerColor = UnspliceSurface, tonalElevation = 0.dp) {
                         listOf(
                             Triple("Library", Icons.Filled.LibraryMusic, "Library"),
@@ -677,7 +680,7 @@ private fun UnspliceApp() {
                                         BadgedBox(
                                             badge = {
                                                 Badge(containerColor = UnspliceMint, contentColor = UnspliceOnMint) {
-                                                    Text("${upcoming.size}")
+                                                    Text("${upcoming.size}", style = MaterialTheme.typography.labelSmall.tabular())
                                                 }
                                             }
                                         ) {
@@ -691,9 +694,9 @@ private fun UnspliceApp() {
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = UnspliceMint,
                                     selectedTextColor = UnspliceMint,
-                                    indicatorColor = UnspliceMintContainer,
-                                    unselectedIconColor = UnspliceSlate,
-                                    unselectedTextColor = UnspliceSlate
+                                    indicatorColor = UnspliceMint.copy(alpha = 0.14f),
+                                    unselectedIconColor = UnspliceMuted,
+                                    unselectedTextColor = UnspliceMuted
                                 )
                             )
                         }
@@ -788,6 +791,7 @@ private fun UnspliceApp() {
                             version = appVersion,
                             podcasts = podcasts,
                             unplayedCounts = unplayedCounts,
+                            latestPublishedByPodcast = latestPublished,
                             gridLayout = gridLayout,
                             update = update,
                             updateDownload = updateDownload,

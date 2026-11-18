@@ -1,6 +1,5 @@
 package com.echomute
 
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -53,13 +52,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -68,7 +64,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -79,14 +74,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.WindowCompat
+import androidx.compose.ui.unit.sp
 
 @Composable
 internal fun MiniPlayerBar(
@@ -106,10 +98,10 @@ internal fun MiniPlayerBar(
     onUndoSkip: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         color = UnspliceSurfaceElevated,
-        border = BorderStroke(1.dp, if (currentAd != null) UnspliceAmber.copy(alpha = 0.55f) else UnspliceOutline),
-        shadowElevation = 10.dp,
+        border = BorderStroke(1.dp, if (currentAd != null) UnspliceAmber.copy(alpha = 0.55f) else UnspliceHairline),
+        shadowElevation = 8.dp,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -119,14 +111,14 @@ internal fun MiniPlayerBar(
                 Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onExpand)
-                    .padding(start = 10.dp, end = 6.dp, top = 8.dp, bottom = 6.dp),
+                    .padding(start = 10.dp, end = 6.dp, top = 8.dp, bottom = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PodcastArtwork(
                     title = artistName.ifBlank { title },
                     url = artworkUrl,
-                    size = 42.dp,
-                    cornerRadius = 10.dp
+                    size = 44.dp,
+                    cornerRadius = 11.dp
                 )
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -134,13 +126,14 @@ internal fun MiniPlayerBar(
                         title,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
+                        color = UnspliceIvory,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     if (currentAd != null) {
                         Text(
                             formatAdRemainingLabel(currentAd, position),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.tabular(),
                             color = UnspliceAmber,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -150,30 +143,38 @@ internal fun MiniPlayerBar(
                         Text(
                             artistName.ifBlank { "Now Playing" },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = UnspliceSlate,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
-                PlayingEqualizer(playing = playing, modifier = Modifier.padding(end = 4.dp))
-                IconButton(onClick = onTogglePlayPause) {
+                PlayingEqualizer(playing = playing, modifier = Modifier.padding(horizontal = 6.dp))
+                FilledIconButton(
+                    onClick = onTogglePlayPause,
+                    shape = CircleShape,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = UnspliceSurfaceBright,
+                        contentColor = UnspliceIvory
+                    ),
+                    modifier = Modifier.size(38.dp)
+                ) {
                     Icon(
                         if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (playing) "Pause playback" else "Resume playback",
-                        tint = UnspliceIvory
+                        modifier = Modifier.size(20.dp)
                     )
                 }
-                IconButton(onClick = onExpand) {
+                IconButton(onClick = onExpand, modifier = Modifier.size(38.dp)) {
                     Icon(
                         Icons.Filled.ExpandLess,
                         contentDescription = "Expand player",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = UnspliceSlate
                     )
                 }
             }
             if (duration > 0) {
-                Box(Modifier.padding(horizontal = 10.dp).padding(bottom = if (currentAd != null || showUndoSkip) 4.dp else 2.dp)) {
+                Box(Modifier.padding(horizontal = 12.dp).padding(bottom = if (currentAd != null || showUndoSkip) 6.dp else 4.dp)) {
                     MiniPlaybackProgress(position, duration, segments, autoSkip)
                 }
             }
@@ -181,14 +182,14 @@ internal fun MiniPlayerBar(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 8.dp),
+                        .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (currentAd != null) {
                         FilledTonalButton(
                             onClick = { onSkipAd(currentAd) },
-                            shape = RoundedCornerShape(20.dp),
+                            shape = RoundedCornerShape(50),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
                                 containerColor = UnspliceAmberContainer,
@@ -203,9 +204,9 @@ internal fun MiniPlayerBar(
                     if (showUndoSkip) {
                         OutlinedButton(
                             onClick = onUndoSkip,
-                            shape = RoundedCornerShape(20.dp),
+                            shape = RoundedCornerShape(50),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                            border = BorderStroke(1.dp, UnspliceMint.copy(alpha = 0.5f))
+                            border = BorderStroke(1.dp, UnspliceMint.copy(alpha = 0.45f))
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(5.dp))
@@ -263,6 +264,7 @@ internal fun NowPlayingSheet(
     onSkipAd: (AdSegment) -> Unit,
     onUndoSkip: () -> Unit
 ) {
+    val auraColor = rememberPodcastAuraColor(artistName.ifBlank { title }, artworkUrl)
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically { it },
@@ -292,7 +294,10 @@ internal fun NowPlayingSheet(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color(0xFF142736), UnspliceMidnight, UnspliceMidnight)
+                            0.0f to auraColor.copy(alpha = 0.90f),
+                            0.45f to auraColor.copy(alpha = 0.28f),
+                            0.78f to UnspliceMidnight,
+                            1.0f to UnspliceMidnight
                         )
                     )
                     .statusBarsPadding()
@@ -302,18 +307,18 @@ internal fun NowPlayingSheet(
                     Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                        .padding(horizontal = 24.dp, vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
                         Modifier
-                            .width(40.dp)
+                            .width(36.dp)
                             .height(4.dp)
                             .clip(RoundedCornerShape(50))
-                            .background(Color.White.copy(alpha = 0.22f))
+                            .background(UnspliceIvory.copy(alpha = 0.25f))
                     )
                     Row(
-                        Modifier.fillMaxWidth().padding(top = 8.dp),
+                        Modifier.fillMaxWidth().padding(top = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = onCollapse) {
@@ -327,18 +332,23 @@ internal fun NowPlayingSheet(
                             Modifier.weight(1f),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("Now Playing", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "NOW PLAYING",
+                                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp),
+                                color = UnspliceIvory.copy(alpha = 0.65f),
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                         Spacer(Modifier.size(48.dp))
                     }
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(14.dp))
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(212.dp)
+                            .size(252.dp)
                             .background(
                                 Brush.radialGradient(
-                                    listOf(UnspliceMint.copy(alpha = 0.16f), Color.Transparent)
+                                    listOf(auraColor.copy(alpha = 0.55f), UnspliceMint.copy(alpha = 0.10f), Color.Transparent)
                                 ),
                                 CircleShape
                             )
@@ -346,109 +356,92 @@ internal fun NowPlayingSheet(
                         PodcastArtwork(
                             title = artistName.ifBlank { title },
                             url = artworkUrl,
-                            size = 204.dp,
-                            cornerRadius = 20.dp
+                            size = 228.dp,
+                            cornerRadius = 22.dp
                         )
                     }
-                    Spacer(Modifier.height(20.dp))
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (artistName.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(18.dp))
+                    Column(Modifier.fillMaxWidth()) {
                         Text(
-                            artistName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = UnspliceMint,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = if (onOpenShow != null) Modifier.clickable(onClick = onOpenShow) else Modifier
+                            title,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = UnspliceIvory,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
                         )
+                        if (artistName.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                artistName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = UnspliceMint,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = if (onOpenShow != null) Modifier.clickable(onClick = onOpenShow) else Modifier
+                            )
+                        }
                     }
                     if (currentAd != null || showUndoSkip) {
-                        Spacer(Modifier.height(12.dp))
-                        if (currentAd != null) {
-                            Text(
-                                formatAdRemainingLabel(currentAd, position),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = UnspliceAmber,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                        }
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Spacer(Modifier.height(14.dp))
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (currentAd != null) UnspliceAmberContainer.copy(alpha = 0.9f) else UnspliceMintContainer.copy(alpha = 0.7f),
+                            border = BorderStroke(
+                                1.dp,
+                                if (currentAd != null) UnspliceAmber.copy(alpha = 0.35f) else UnspliceMint.copy(alpha = 0.35f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            if (currentAd != null) {
-                                FilledTonalButton(
-                                    onClick = { onSkipAd(currentAd) },
-                                    shape = RoundedCornerShape(24.dp),
-                                    colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = UnspliceAmberContainer,
-                                        contentColor = UnspliceAmber
-                                    )
-                                ) {
-                                    Icon(Icons.Filled.FastForward, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Skip ad", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                                }
-                            }
-                            if (showUndoSkip) {
-                                OutlinedButton(
-                                    onClick = onUndoSkip,
-                                    shape = RoundedCornerShape(24.dp),
-                                    border = BorderStroke(1.dp, UnspliceMint.copy(alpha = 0.5f))
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Undo skip", color = UnspliceMint, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(20.dp))
-                    PlaybackProgress(position, duration, segments, chapters, autoSkip, onSeek)
-                    Spacer(Modifier.height(8.dp))
-                    Surface(
-                        onClick = onShowAdBreaks,
-                        shape = RoundedCornerShape(14.dp),
-                        color = UnspliceSurface,
-                        border = BorderStroke(1.dp, UnspliceOutline),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(Icons.Filled.FastForward, contentDescription = null, tint = UnspliceAmber)
-                            Column(Modifier.weight(1f)) {
-                                Text("Ad breaks", style = MaterialTheme.typography.labelLarge)
+                            Row(
+                                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Text(
-                                    remember(segments, autoSkip) { formatAdSummary(segments, autoSkip) }
-                                        ?: "Review or scan for ads",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    if (currentAd != null) formatAdRemainingLabel(currentAd, position) else "Skipped ad segment",
+                                    style = MaterialTheme.typography.labelMedium.tabular(),
+                                    color = if (currentAd != null) UnspliceAmber else UnspliceMint,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f)
                                 )
+                                if (currentAd != null) {
+                                    FilledTonalButton(
+                                        onClick = { onSkipAd(currentAd) },
+                                        shape = RoundedCornerShape(50),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                            containerColor = UnspliceAmber,
+                                            contentColor = Color(0xFF261904)
+                                        )
+                                    ) {
+                                        Icon(Icons.Filled.FastForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Skip ad", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                    }
+                                }
+                                if (showUndoSkip) {
+                                    OutlinedButton(
+                                        onClick = onUndoSkip,
+                                        shape = RoundedCornerShape(50),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        border = BorderStroke(1.dp, UnspliceMint.copy(alpha = 0.5f))
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(15.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Undo skip", color = UnspliceMint, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                                    }
+                                }
                             }
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(18.dp))
+                    PlaybackProgress(position, duration, segments, chapters, autoSkip, onSeek)
+                    Spacer(Modifier.height(14.dp))
                     Row(
                         Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
+                        horizontalArrangement = Arrangement.spacedBy(30.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         SeekButton(label = "15", mirrored = false, contentDescription = "Rewind 15 seconds") {
@@ -460,23 +453,61 @@ internal fun NowPlayingSheet(
                                 containerColor = UnspliceMint,
                                 contentColor = UnspliceOnMint
                             ),
-                            modifier = Modifier.size(68.dp)
+                            modifier = Modifier.size(72.dp)
                         ) {
                             Icon(
                                 if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 contentDescription = if (playing) "Pause" else "Play",
-                                modifier = Modifier.size(36.dp)
+                                modifier = Modifier.size(38.dp)
                             )
                         }
                         SeekButton(label = "30", mirrored = true, contentDescription = "Forward 30 seconds") {
                             onSeek((position + 30_000).coerceAtMost(duration))
                         }
                     }
-                    Spacer(Modifier.height(22.dp))
+                    Spacer(Modifier.height(20.dp))
                     Surface(
+                        onClick = onShowAdBreaks,
                         shape = RoundedCornerShape(16.dp),
                         color = UnspliceSurface,
-                        border = BorderStroke(1.dp, UnspliceOutline),
+                        border = BorderStroke(1.dp, UnspliceHairline),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(UnspliceAmberContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Filled.FastForward, contentDescription = null, tint = UnspliceAmber, modifier = Modifier.size(18.dp))
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text("Ad breaks", style = MaterialTheme.typography.labelLarge, color = UnspliceIvory)
+                                Text(
+                                    remember(segments, autoSkip) { formatAdSummary(segments, autoSkip) }
+                                        ?: "Review or scan for ads",
+                                    style = MaterialTheme.typography.bodySmall.tabular(),
+                                    color = UnspliceSlate
+                                )
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = UnspliceMuted
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = UnspliceSurface,
+                        border = BorderStroke(1.dp, UnspliceHairline),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -485,47 +516,42 @@ internal fun NowPlayingSheet(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = UnspliceSurfaceElevated,
-                                    border = BorderStroke(1.dp, UnspliceOutline)
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(UnspliceSurfaceElevated)
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            modifier = Modifier.size(36.dp).testTag("speed-down"),
-                                            onClick = { onStepSpeed(-0.1f) }
-                                        ) {
-                                            Icon(Icons.Filled.Remove, contentDescription = "Decrease speed", modifier = Modifier.size(16.dp))
-                                        }
-                                        Text(
-                                            "${speed}x",
-                                            fontWeight = FontWeight.Bold,
-                                            color = UnspliceMint,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            modifier = Modifier
-                                                .clickable(onClick = onCycleSpeed)
-                                                .padding(horizontal = 8.dp)
-                                        )
-                                        IconButton(
-                                            modifier = Modifier.size(36.dp).testTag("speed-up"),
-                                            onClick = { onStepSpeed(0.1f) }
-                                        ) {
-                                            Icon(Icons.Filled.Add, contentDescription = "Increase speed", modifier = Modifier.size(16.dp))
-                                        }
+                                    IconButton(
+                                        modifier = Modifier.size(34.dp).testTag("speed-down"),
+                                        onClick = { onStepSpeed(-0.1f) }
+                                    ) {
+                                        Icon(Icons.Filled.Remove, contentDescription = "Decrease speed", tint = UnspliceIvory, modifier = Modifier.size(16.dp))
+                                    }
+                                    Text(
+                                        "${speed}x",
+                                        fontWeight = FontWeight.Bold,
+                                        color = UnspliceMint,
+                                        style = MaterialTheme.typography.labelLarge.tabular(),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier
+                                            .clickable(onClick = onCycleSpeed)
+                                            .padding(horizontal = 8.dp)
+                                    )
+                                    IconButton(
+                                        modifier = Modifier.size(34.dp).testTag("speed-up"),
+                                        onClick = { onStepSpeed(0.1f) }
+                                    ) {
+                                        Icon(Icons.Filled.Add, contentDescription = "Increase speed", tint = UnspliceIvory, modifier = Modifier.size(16.dp))
                                     }
                                 }
-                                FilterChip(
+                                UnspliceFilterChip(
                                     selected = sleepLabel != "Off",
-                                    onClick = onCycleSleepTimer,
-                                    leadingIcon = { Icon(Icons.Filled.Bedtime, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                    label = { Text("Sleep: $sleepLabel", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = UnspliceMintContainer,
-                                        selectedLabelColor = UnspliceMint,
-                                        selectedLeadingIconColor = UnspliceMint
-                                    )
+                                    label = "Sleep: $sleepLabel",
+                                    leadingIcon = Icons.Filled.Bedtime,
+                                    onClick = onCycleSleepTimer
                                 )
                             }
                             Row(
@@ -533,71 +559,51 @@ internal fun NowPlayingSheet(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                FilterChip(
+                                UnspliceFilterChip(
                                     selected = autoSkip,
                                     enabled = canToggleAutoSkip,
-                                    onClick = onToggleAutoSkip,
-                                    leadingIcon = { Icon(Icons.Filled.Shield, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                    label = { Text(if (autoSkip) "Auto-skip: ON" else "Auto-skip: OFF", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = UnspliceMintContainer,
-                                        selectedLabelColor = UnspliceMint,
-                                        selectedLeadingIconColor = UnspliceMint
-                                    )
+                                    label = if (autoSkip) "Auto-skip: ON" else "Auto-skip: OFF",
+                                    leadingIcon = Icons.Filled.Shield,
+                                    onClick = onToggleAutoSkip
                                 )
-                                FilterChip(
+                                UnspliceFilterChip(
                                     selected = trimSilence,
-                                    onClick = onToggleTrimSilence,
-                                    leadingIcon = { Icon(Icons.Filled.GraphicEq, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                    label = { Text("Trim silence", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = UnspliceMintContainer,
-                                        selectedLabelColor = UnspliceMint,
-                                        selectedLeadingIconColor = UnspliceMint
-                                    )
+                                    label = "Trim silence",
+                                    leadingIcon = Icons.Filled.GraphicEq,
+                                    onClick = onToggleTrimSilence
                                 )
-                                FilterChip(
+                                UnspliceFilterChip(
                                     selected = voiceBoost,
-                                    onClick = onToggleVoiceBoost,
-                                    leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                    label = { Text("Voice boost", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = UnspliceMintContainer,
-                                        selectedLabelColor = UnspliceMint,
-                                        selectedLeadingIconColor = UnspliceMint
-                                    )
+                                    label = "Voice boost",
+                                    leadingIcon = Icons.Filled.RecordVoiceOver,
+                                    onClick = onToggleVoiceBoost
                                 )
                                 if (chapters.isNotEmpty()) {
-                                    FilterChip(
+                                    UnspliceFilterChip(
                                         selected = showPlayerChapters,
-                                        onClick = onToggleChapters,
-                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                        label = { Text("Chapters (${chapters.size})", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = UnspliceMintContainer,
-                                            selectedLabelColor = UnspliceMint,
-                                            selectedLeadingIconColor = UnspliceMint
-                                        )
+                                        label = "Chapters (${chapters.size})",
+                                        leadingIcon = Icons.AutoMirrored.Filled.List,
+                                        onClick = onToggleChapters
                                     )
                                 }
                                 if (hasTranscript) {
-                                    FilterChip(
+                                    UnspliceFilterChip(
                                         selected = false,
-                                        onClick = onOpenTranscript,
-                                        leadingIcon = { Icon(Icons.Filled.Subtitles, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                        label = { Text("Transcript", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) }
+                                        label = "Transcript",
+                                        leadingIcon = Icons.Filled.Subtitles,
+                                        onClick = onOpenTranscript
                                     )
                                 }
                             }
                         }
                     }
                     if (showPlayerChapters && chapters.isNotEmpty()) {
-                        Spacer(Modifier.height(14.dp))
+                        Spacer(Modifier.height(12.dp))
                         val activeChapter = remember(chapters, position, duration) { currentChapter(chapters, position, duration) }
                         Surface(
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(18.dp),
                             color = UnspliceSurface,
-                            border = BorderStroke(1.dp, UnspliceOutline),
+                            border = BorderStroke(1.dp, UnspliceHairline),
                             modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp)
                         ) {
                             LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -617,15 +623,15 @@ internal fun NowPlayingSheet(
                                     ) {
                                         Text(
                                             formatTime(ch.startMs),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = if (isActive) UnspliceMint else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelSmall.tabular(),
+                                            color = if (isActive) UnspliceMint else UnspliceSlate,
                                             fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.width(50.dp)
+                                            modifier = Modifier.width(52.dp)
                                         )
                                         Text(
                                             ch.title,
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = if (isActive) UnspliceIvory else MaterialTheme.colorScheme.onSurface,
+                                            color = if (isActive) UnspliceIvory else UnspliceIvory.copy(alpha = 0.88f),
                                             fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                                             modifier = Modifier.weight(1f),
                                             maxLines = 1,
@@ -660,42 +666,39 @@ internal fun NowPlayingSheet(
                 containerColor = UnspliceSurface,
                 contentColor = UnspliceIvory
             ) {
-                val window = (LocalView.current.parent as? DialogWindowProvider)?.window
-                SideEffect {
-                    window?.let {
-                        WindowCompat.getInsetsController(it, it.decorView).apply {
-                            isAppearanceLightStatusBars = false
-                            isAppearanceLightNavigationBars = false
-                        }
-                        if (Build.VERSION.SDK_INT >= 29) it.isNavigationBarContrastEnforced = false
-                    }
-                }
+                DarkSheetSystemBars()
                 Column(
                     Modifier.fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(
                                 "Ad breaks",
-                                style = MaterialTheme.typography.titleLarge
+                                style = MaterialTheme.typography.titleLarge,
+                                color = UnspliceIvory
                             )
                             Text(
                                 if (autoSkip) "Auto-skip enabled for this show" else "Auto-skip disabled • manual skip only",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = UnspliceSlate
                             )
                         }
                         IconButton(onClick = onDismissAdBreaks) {
-                            Icon(Icons.Filled.Close, contentDescription = "Close ad breaks")
+                            Icon(Icons.Filled.Close, contentDescription = "Close ad breaks", tint = UnspliceSlate)
                         }
                     }
                     if (!isScanning && episodeStatus != null) {
-                        TextButton(
+                        FilledTonalButton(
                             onClick = onScanAds,
-                            contentPadding = PaddingValues(horizontal = 8.dp)
+                            shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = UnspliceSurfaceElevated,
+                                contentColor = UnspliceIvory
+                            )
                         ) {
                             Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
@@ -708,74 +711,70 @@ internal fun NowPlayingSheet(
                             "DOWNLOADING" -> "Downloading episode…"
                             else -> "Queued for ad scan…"
                         }
-                        Text(scanLabel, style = MaterialTheme.typography.bodySmall, color = UnspliceMint, fontWeight = FontWeight.Medium)
-                        if (episodeProgress?.percent != null) {
-                            LinearProgressIndicator(
-                                progress = { (episodeProgress.percent / 100f).coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)),
-                                color = UnspliceMint,
-                                trackColor = UnspliceTrack
-                            )
-                        } else {
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)),
-                                color = UnspliceMint,
-                                trackColor = UnspliceTrack
-                            )
-                        }
+                        Text(scanLabel, style = MaterialTheme.typography.bodySmall.tabular(), color = UnspliceMint, fontWeight = FontWeight.Medium)
+                        UnspliceProgressBar(fraction = episodeProgress?.percent?.let { it / 100f }, height = 4.dp)
                     } else if (segments.isEmpty()) {
                         Text(
                             "No ad breaks detected yet for this episode.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = UnspliceSlate
                         )
                     } else {
-                        segments.forEachIndexed { idx, seg ->
-                            if (idx > 0) HorizontalDivider(color = UnspliceOutline)
-                            val isCurrentSeg = position >= seg.startMs && position < seg.endMs
-                            val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) " • manual skip" else ""
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isCurrentSeg) UnspliceAmberContainer else Color.Transparent)
-                                    .clickable { onSeek(seg.startMs) }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f).padding(end = 6.dp)) {
-                                    Text(
-                                        "${formatTime(seg.startMs)} – ${formatTime(seg.endMs)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (isCurrentSeg) UnspliceAmber else UnspliceIvory,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                    Text(
-                                        "${formatAdSegmentLabel(seg.source)}$manual",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { onSkipAd(seg) },
-                                    modifier = Modifier.size(34.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.SkipNext,
-                                        contentDescription = "Skip past ad segment",
-                                        tint = UnspliceAmber,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                                TextButton(
-                                    onClick = { onKeepSegment(seg) },
-                                    contentPadding = PaddingValues(horizontal = 8.dp)
-                                ) {
-                                    Text("Keep", style = MaterialTheme.typography.labelSmall, color = UnspliceMint, maxLines = 1, softWrap = false)
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = UnspliceSurfaceElevated,
+                            border = BorderStroke(1.dp, UnspliceHairline),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                segments.forEachIndexed { idx, seg ->
+                                    if (idx > 0) HorizontalDivider(color = UnspliceHairline)
+                                    val isCurrentSeg = position >= seg.startMs && position < seg.endMs
+                                    val manual = if (seg.confidence < AUTO_SKIP_CONFIDENCE) " • manual skip" else ""
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (isCurrentSeg) UnspliceAmberContainer else Color.Transparent)
+                                            .clickable { onSeek(seg.startMs) }
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f).padding(end = 6.dp)) {
+                                            Text(
+                                                "${formatTime(seg.startMs)} – ${formatTime(seg.endMs)}",
+                                                style = MaterialTheme.typography.bodySmall.tabular(),
+                                                color = if (isCurrentSeg) UnspliceAmber else UnspliceIvory,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                            Text(
+                                                "${formatAdSegmentLabel(seg.source)}$manual",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = UnspliceSlate,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { onSkipAd(seg) },
+                                            modifier = Modifier.size(34.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.SkipNext,
+                                                contentDescription = "Skip past ad segment",
+                                                tint = UnspliceAmber,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = { onKeepSegment(seg) },
+                                            contentPadding = PaddingValues(horizontal = 8.dp)
+                                        ) {
+                                            Text("Keep", style = MaterialTheme.typography.labelSmall, color = UnspliceMint, maxLines = 1, softWrap = false)
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -1,5 +1,6 @@
 package com.echomute
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,8 +62,14 @@ internal fun DiscoverTab(
 ) {
     var showFeedForm by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp)) {
             Text("Discover", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Find shows to listen ad-free",
+                style = MaterialTheme.typography.bodySmall,
+                color = UnspliceSlate,
+                modifier = Modifier.padding(top = 3.dp)
+            )
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 UnspliceSearchField(
@@ -74,44 +83,53 @@ internal fun DiscoverTab(
                 Button(
                     enabled = !searching && searchQuery.isNotBlank(),
                     onClick = onRunSearch,
-                    shape = RoundedCornerShape(14.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = UnspliceMint, contentColor = UnspliceOnMint)
+                    shape = RoundedCornerShape(16.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = UnspliceMint,
+                        contentColor = UnspliceOnMint,
+                        disabledContainerColor = UnspliceSurfaceElevated,
+                        disabledContentColor = UnspliceMuted
+                    ),
+                    modifier = Modifier.padding(top = 6.dp).heightIn(min = 54.dp)
                 ) {
                     Text(if (searching) "Searching…" else "Search", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
             TextButton(
                 onClick = { showFeedForm = !showFeedForm },
-                contentPadding = PaddingValues(horizontal = 4.dp)
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                modifier = Modifier.padding(top = 4.dp)
             ) {
-                Icon(Icons.Filled.RssFeed, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.RssFeed, contentDescription = null, tint = UnspliceSlate, modifier = Modifier.size(17.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Add via RSS feed")
+                Text("Add via RSS feed", color = UnspliceIvory, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.width(2.dp))
                 Icon(
                     if (showFeedForm) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = null
+                    contentDescription = null,
+                    tint = UnspliceSlate
                 )
             }
         }
         LazyColumn(
             Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            if (showFeedForm) {
-                item(key = "rss-card") {
+            item(key = "rss-card") {
+                AnimatedVisibility(visible = showFeedForm) {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(18.dp),
                         color = UnspliceSurface,
-                        border = BorderStroke(1.dp, UnspliceOutline),
+                        border = BorderStroke(1.dp, UnspliceHairline),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(
-                                "Paste any podcast RSS or Atom feed URL to subscribe directly.",
+                                "Paste any podcast RSS or Atom address to subscribe directly.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = UnspliceSlate
                             )
                             OutlinedTextField(
                                 value = feedUrl,
@@ -125,6 +143,7 @@ internal fun DiscoverTab(
                                     focusedBorderColor = UnspliceMint,
                                     focusedLabelColor = UnspliceMint,
                                     unfocusedBorderColor = UnspliceOutline,
+                                    unfocusedLabelColor = UnspliceSlate,
                                     focusedContainerColor = UnspliceMidnight,
                                     unfocusedContainerColor = UnspliceMidnight
                                 ),
@@ -133,8 +152,13 @@ internal fun DiscoverTab(
                             Button(
                                 enabled = !loading && feedUrl.isNotBlank(),
                                 onClick = { onSubscribeFeed(feedUrl) },
-                                shape = RoundedCornerShape(22.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = UnspliceMint, contentColor = UnspliceOnMint),
+                                shape = RoundedCornerShape(50),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = UnspliceMint,
+                                    contentColor = UnspliceOnMint,
+                                    disabledContainerColor = UnspliceSurfaceElevated,
+                                    disabledContentColor = UnspliceMuted
+                                ),
                                 modifier = Modifier.align(Alignment.End)
                             ) {
                                 Text(if (loading) "Loading…" else "Subscribe", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
@@ -149,28 +173,30 @@ internal fun DiscoverTab(
                         "Search Results",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 2.dp)
+                        color = UnspliceIvory,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
                 items(searchResults, key = { it.feedUrl }) { item ->
                     val subscribed = isPodcastSubscribed(podcasts, item.feedUrl)
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(18.dp),
                         color = UnspliceSurface,
-                        border = BorderStroke(1.dp, UnspliceOutline),
+                        border = BorderStroke(1.dp, UnspliceHairline),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             Modifier.fillMaxWidth().padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            PodcastArtwork(item.title, item.artworkUrl, size = 50.dp, cornerRadius = 10.dp)
+                            PodcastArtwork(item.title, item.artworkUrl, size = 54.dp, cornerRadius = 12.dp)
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f).padding(end = 8.dp)) {
                                 Text(
                                     item.title,
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = FontWeight.SemiBold,
+                                    color = UnspliceIvory,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -178,7 +204,7 @@ internal fun DiscoverTab(
                                     Text(
                                         item.artist,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = UnspliceSlate,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -186,8 +212,8 @@ internal fun DiscoverTab(
                             }
                             if (subscribed) {
                                 OutlinedButton(
-                                    shape = RoundedCornerShape(20.dp),
-                                    border = BorderStroke(1.dp, UnspliceMint.copy(alpha = 0.5f)),
+                                    shape = RoundedCornerShape(50),
+                                    border = BorderStroke(1.dp, UnspliceMint.copy(alpha = 0.45f)),
                                     onClick = {
                                         val hash = stableHash(item.feedUrl.trim())
                                         podcasts.firstOrNull { it.id == hash || it.feedUrl.equals(item.feedUrl.trim(), ignoreCase = true) }
@@ -199,7 +225,7 @@ internal fun DiscoverTab(
                             } else {
                                 Button(
                                     enabled = !loading,
-                                    shape = RoundedCornerShape(20.dp),
+                                    shape = RoundedCornerShape(50),
                                     colors = ButtonDefaults.buttonColors(containerColor = UnspliceMint, contentColor = UnspliceOnMint),
                                     onClick = { onSubscribeFeed(item.feedUrl) }
                                 ) {
@@ -209,8 +235,16 @@ internal fun DiscoverTab(
                         }
                     }
                 }
+            } else if (!showFeedForm && !searching) {
+                item(key = "discover-empty") {
+                    Spacer(Modifier.height(12.dp))
+                    EmptyStateCard(
+                        icon = Icons.Filled.Podcasts,
+                        title = "Search for any podcast",
+                        subtitle = "Look up shows by name or tap Add via RSS feed above to paste a feed link directly."
+                    )
+                }
             }
-
         }
     }
 }

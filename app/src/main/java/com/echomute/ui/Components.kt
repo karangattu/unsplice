@@ -2,7 +2,9 @@ package com.echomute
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.util.LruCache
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -34,8 +36,11 @@ import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -45,6 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -62,6 +68,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -72,6 +79,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.graphics.scale
+import androidx.core.view.WindowCompat
 import java.io.IOException
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
@@ -92,6 +102,92 @@ internal fun formatTime(ms: Long): String {
 }
 
 @Composable
+internal fun DarkSheetSystemBars() {
+    val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+    SideEffect {
+        window?.let {
+            WindowCompat.getInsetsController(it, it.decorView).apply {
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
+            }
+            if (Build.VERSION.SDK_INT >= 29) it.isNavigationBarContrastEnforced = false
+        }
+    }
+}
+
+@Composable
+internal fun UnspliceFilterChip(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    leadingIcon: ImageVector? = null,
+    enabled: Boolean = true
+) {
+    FilterChip(
+        selected = selected,
+        enabled = enabled,
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        leadingIcon = leadingIcon?.let {
+            { Icon(it, contentDescription = null, modifier = Modifier.size(16.dp)) }
+        },
+        label = {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false
+            )
+        },
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = UnspliceSurfaceElevated,
+            labelColor = UnspliceSlate,
+            iconColor = UnspliceSlate,
+            selectedContainerColor = UnspliceMintContainer,
+            selectedLabelColor = UnspliceMint,
+            selectedLeadingIconColor = UnspliceMint
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = enabled,
+            selected = selected,
+            borderColor = UnspliceHairline,
+            selectedBorderColor = UnspliceMint.copy(alpha = 0.40f),
+            borderWidth = 1.dp,
+            selectedBorderWidth = 1.dp
+        ),
+        modifier = modifier
+    )
+}
+
+@Composable
+internal fun UnspliceProgressBar(
+    fraction: Float?,
+    modifier: Modifier = Modifier,
+    height: Dp = 3.dp,
+    color: Color = UnspliceMint,
+    trackColor: Color = UnspliceTrack
+) {
+    val barModifier = modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(50))
+    if (fraction != null) {
+        val clamped = fraction.coerceIn(0f, 1f)
+        LinearProgressIndicator(
+            progress = { clamped },
+            modifier = barModifier,
+            color = color,
+            trackColor = trackColor
+        )
+    } else {
+        LinearProgressIndicator(
+            modifier = barModifier,
+            color = color,
+            trackColor = trackColor
+        )
+    }
+}
+
+@Composable
 internal fun PlaybackProgress(
     position: Long,
     duration: Long,
@@ -107,14 +203,26 @@ internal fun PlaybackProgress(
     val activeChapter = remember(chapters, shownPosition, duration) { currentChapter(chapters, shownPosition, duration) }
     Column {
         if (activeChapter != null && activeChapter.title.isNotBlank()) {
-            Text(
-                activeChapter.title,
-                style = MaterialTheme.typography.labelMedium,
-                color = UnspliceMint,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(bottom = 2.dp).testTag("current-chapter-title")
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(bottom = 2.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(UnspliceMint)
+                )
+                Text(
+                    activeChapter.title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = UnspliceMint,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("current-chapter-title")
+                )
+            }
         }
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(6.dp).clearAndSetSemantics { }) {
@@ -132,7 +240,7 @@ internal fun PlaybackProgress(
                 chapters.forEach { chapter ->
                     if (chapter.startMs in 1 until duration) {
                         val x = (chapter.startMs.toFloat() / duration).coerceIn(0f, 1f) * size.width
-                        drawLine(Color.White.copy(alpha = 0.75f), Offset(x, 0f), Offset(x, size.height), strokeWidth = 2f)
+                        drawLine(UnspliceIvory.copy(alpha = 0.72f), Offset(x, 0f), Offset(x, size.height), strokeWidth = 2f)
                     }
                 }
             }
@@ -157,8 +265,16 @@ internal fun PlaybackProgress(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(formatTime(shownPosition), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(formatTime(duration), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                formatTime(shownPosition),
+                style = MaterialTheme.typography.labelSmall.tabular(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                formatTime(duration),
+                style = MaterialTheme.typography.labelSmall.tabular(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -182,7 +298,6 @@ internal fun MiniPlaybackProgress(position: Long, duration: Long, segments: List
     }
 }
 
-/** Three bars that bounce while audio plays and settle to zero when it is paused. */
 @Composable
 internal fun PlayingEqualizer(playing: Boolean, modifier: Modifier = Modifier) {
     val bars = listOf(
@@ -195,7 +310,6 @@ internal fun PlayingEqualizer(playing: Boolean, modifier: Modifier = Modifier) {
             bars.forEach { bar -> launch { bar.animateTo(0f, tween(180)) } }
             return@LaunchedEffect
         }
-        // Different ranges and durations keep the bars out of sync like a level meter.
         val motions = listOf(
             Triple(0.25f, 1f, 440),
             Triple(0.9f, 0.32f, 620),
@@ -235,25 +349,25 @@ internal fun SettingValueRow(label: String, value: String, onClick: () -> Unit) 
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(end = 8.dp))
         Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = UnspliceMintContainer,
-            border = BorderStroke(1.dp, UnspliceMint.copy(alpha = 0.35f))
+            shape = RoundedCornerShape(50),
+            color = UnspliceSurfaceBright,
+            border = BorderStroke(1.dp, UnspliceHairline)
         ) {
             Text(
                 value,
                 color = UnspliceMint,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelMedium.tabular(),
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 softWrap = false,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
             )
         }
     }
@@ -274,7 +388,7 @@ internal fun SeekButton(label: String, mirrored: Boolean, contentDescription: St
             )
             Text(
                 label,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.tabular(),
                 color = UnspliceIvory,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -289,11 +403,26 @@ private val artworkClient = OkHttpClient()
 private val artworkCache = object : LruCache<String, Bitmap>(4 * 1024 * 1024) {
     override fun sizeOf(key: String, value: Bitmap) = value.byteCount
 }
+private val auraColorCache = LruCache<String, Int>(256)
+
+private fun computeAuraFromBitmap(url: String, bitmap: Bitmap): Int? {
+    auraColorCache.get(url)?.let { return it }
+    val scaled = bitmap.scale(16, 16)
+    val pixels = IntArray(16 * 16)
+    scaled.getPixels(pixels, 0, 16, 0, 0, 16, 16)
+    if (scaled !== bitmap) scaled.recycle()
+    val aura = extractArtworkAuraArgb(pixels)
+    if (aura != null) auraColorCache.put(url, aura)
+    return aura
+}
 
 private suspend fun loadArtwork(url: String, pixels: Int): Bitmap? {
     if (!httpUrl(url)) return null
     val key = "$url@$pixels"
-    artworkCache.get(key)?.let { return it }
+    artworkCache.get(key)?.let { cached ->
+        if (auraColorCache.get(url) == null) computeAuraFromBitmap(url, cached)
+        return cached
+    }
     val request = runCatching { Request.Builder().url(url).build() }.getOrNull() ?: return null
     return suspendCancellableCoroutine { continuation ->
         val call = artworkClient.newCall(request)
@@ -320,11 +449,35 @@ private suspend fun loadArtwork(url: String, pixels: Int): Bitmap? {
                         }
                     }
                 } catch (_: Exception) { null }
-                if (bitmap != null) artworkCache.put(key, bitmap)
+                if (bitmap != null) {
+                    artworkCache.put(key, bitmap)
+                    computeAuraFromBitmap(url, bitmap)
+                }
                 if (continuation.isActive) continuation.resume(bitmap)
             }
         })
     }
+}
+
+@Composable
+internal fun rememberPodcastAuraColor(title: String, url: String?): Color {
+    val fallback = remember(title) { Color(fallbackArtworkAuraArgb(title)) }
+    val cachedAura = url?.let { auraColorCache.get(it) }
+    val resolvedArgb by produceState<Int?>(initialValue = cachedAura, url) {
+        if (url == null) {
+            value = null
+            return@produceState
+        }
+        auraColorCache.get(url)?.let {
+            value = it
+            return@produceState
+        }
+        loadArtwork(url, 128)
+        value = auraColorCache.get(url)
+    }
+    val target = resolvedArgb?.let(::Color) ?: fallback
+    val animated by animateColorAsState(targetValue = target, animationSpec = tween(420), label = "artworkAura")
+    return animated
 }
 
 private fun artworkGradient(seed: String): Brush {
@@ -343,8 +496,9 @@ internal fun PodcastArtwork(title: String, url: String?, size: Dp = 44.dp, corne
     Box(
         modifier = Modifier
             .size(size)
+            .clip(shape)
             .background(artworkGradient(title), shape)
-            .border(1.dp, Color.White.copy(alpha = 0.10f), shape),
+            .border(1.dp, UnspliceHairline, shape),
         contentAlignment = Alignment.Center
     ) {
         if (bitmap == null) {
@@ -379,21 +533,22 @@ internal fun UnspliceSearchField(
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
-        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = UnspliceSlate) },
         trailingIcon = if (value.isNotEmpty()) {
             {
                 IconButton(onClick = { onValueChange("") }) {
-                    Icon(Icons.Filled.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Close, contentDescription = "Clear", tint = UnspliceSlate, modifier = Modifier.size(18.dp))
                 }
             }
         } else null,
         keyboardOptions = KeyboardOptions(imeAction = imeAction),
         keyboardActions = KeyboardActions(onSearch = { onSubmit() }, onDone = { onSubmit() }),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = UnspliceMint,
             focusedLabelColor = UnspliceMint,
             unfocusedBorderColor = UnspliceOutline,
+            unfocusedLabelColor = UnspliceSlate,
             focusedContainerColor = UnspliceSurface,
             unfocusedContainerColor = UnspliceSurface
         ),
@@ -412,33 +567,36 @@ internal fun EmptyStateCard(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         color = UnspliceSurface,
-        border = BorderStroke(1.dp, UnspliceOutline)
+        border = BorderStroke(1.dp, UnspliceHairline)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 30.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 modifier = Modifier
-                    .size(60.dp)
+                    .size(64.dp)
                     .background(
                         Brush.radialGradient(
-                            listOf(UnspliceMint.copy(alpha = 0.30f), UnspliceAmber.copy(alpha = 0.12f), Color.Transparent)
+                            listOf(UnspliceMint.copy(alpha = 0.28f), UnspliceAmber.copy(alpha = 0.10f), Color.Transparent)
                         ),
                         CircleShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
-                    modifier = Modifier.size(46.dp).background(UnspliceMintContainer, CircleShape),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(UnspliceMintContainer, CircleShape)
+                        .border(1.dp, UnspliceMint.copy(alpha = 0.25f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(icon, contentDescription = null, tint = UnspliceMint, modifier = Modifier.size(24.dp))
                 }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(6.dp))
             Text(
@@ -448,14 +606,14 @@ internal fun EmptyStateCard(
                 textAlign = TextAlign.Center
             )
             if (actionLabel != null && onAction != null) {
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(18.dp))
                 Button(
                     onClick = onAction,
                     shape = RoundedCornerShape(24.dp),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+                    contentPadding = PaddingValues(horizontal = 22.dp, vertical = 11.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = UnspliceMint, contentColor = UnspliceOnMint)
                 ) {
-                    Text(actionLabel, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                    Text(actionLabel, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
         }
@@ -478,9 +636,9 @@ internal fun StatusPill(
         border = if (borderColor != Color.Transparent) BorderStroke(1.dp, borderColor) else null
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             if (icon != null) {
                 Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(13.dp))

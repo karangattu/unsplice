@@ -27,12 +27,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -43,7 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -65,8 +61,22 @@ internal fun FiltersTab(
     onPlayEpisode: (Episode, Podcast) -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-            Text("Filters", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 10.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Text("Filters", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                if (episodes.isNotEmpty()) {
+                    Text(
+                        if (episodes.size == 1) "1 episode" else "${episodes.size} episodes",
+                        style = MaterialTheme.typography.labelMedium.tabular(),
+                        color = UnspliceSlate,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+            }
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -75,14 +85,10 @@ internal fun FiltersTab(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 listOf("New Releases", "In Progress", "Downloaded", "Starred").forEach { name ->
-                    FilterChip(
+                    UnspliceFilterChip(
                         selected = smartFilter == name,
+                        label = name,
                         onClick = { onSelectFilter(name) },
-                        label = { Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = UnspliceMintContainer,
-                            selectedLabelColor = UnspliceMint
-                        ),
                         modifier = Modifier.testTag("smart-filter-$name")
                     )
                 }
@@ -105,7 +111,7 @@ internal fun FiltersTab(
         } else {
             LazyColumn(
                 Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(episodes, key = { it.id }) { ep ->
@@ -127,26 +133,28 @@ internal fun FiltersTab(
                                     onHorizontalDrag = { _, dragAmount -> dragAccumulated += dragAmount }
                                 )
                             },
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(18.dp),
                         color = UnspliceSurface,
-                        border = BorderStroke(1.dp, UnspliceOutline)
+                        border = BorderStroke(1.dp, UnspliceHairline)
                     ) {
-                        Column(Modifier.padding(12.dp)) {
+                        Column(Modifier.padding(13.dp)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                PodcastArtwork(pod?.title ?: ep.title, pod?.artworkUrl, size = 46.dp, cornerRadius = 10.dp)
+                                PodcastArtwork(pod?.title ?: ep.title, pod?.artworkUrl, size = 48.dp, cornerRadius = 12.dp)
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         ep.title,
                                         style = MaterialTheme.typography.titleMedium,
+                                        color = UnspliceIvory,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     ep.publishedAt?.let { publishedAt ->
                                         Text(
                                             formatPublished(publishedAt),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            style = MaterialTheme.typography.bodySmall.tabular(),
+                                            color = UnspliceSlate,
+                                            modifier = Modifier.padding(top = 2.dp)
                                         )
                                     }
                                     val meta = listOfNotNull(
@@ -157,7 +165,7 @@ internal fun FiltersTab(
                                         Text(
                                             meta.joinToString(" \u2022 "),
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = UnspliceMuted,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -167,7 +175,7 @@ internal fun FiltersTab(
                                     Icon(
                                         if (ep.starred) Icons.Filled.Star else Icons.Filled.StarBorder,
                                         contentDescription = "Star episode",
-                                        tint = if (ep.starred) UnspliceAmber else MaterialTheme.colorScheme.onSurfaceVariant
+                                        tint = if (ep.starred) UnspliceAmber else UnspliceMuted
                                     )
                                 }
                                 Spacer(Modifier.width(2.dp))
@@ -175,8 +183,8 @@ internal fun FiltersTab(
                                     onClick = { if (pod != null) onPlayEpisode(ep, pod) },
                                     shape = CircleShape,
                                     colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = UnspliceMintContainer,
-                                        contentColor = UnspliceMint
+                                        containerColor = UnspliceMint,
+                                        contentColor = UnspliceOnMint
                                     ),
                                     modifier = Modifier.size(38.dp)
                                 ) {
@@ -185,13 +193,8 @@ internal fun FiltersTab(
                             }
                             val epDuration = ep.durationMs
                             if (!ep.finished && ep.positionMs > 0 && epDuration != null && epDuration > 0) {
-                                Spacer(Modifier.height(8.dp))
-                                LinearProgressIndicator(
-                                    progress = { (ep.positionMs.toFloat() / epDuration).coerceIn(0f, 1f) },
-                                    modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50)),
-                                    color = UnspliceMint,
-                                    trackColor = UnspliceTrack
-                                )
+                                Spacer(Modifier.height(10.dp))
+                                UnspliceProgressBar(fraction = ep.positionMs.toFloat() / epDuration, height = 3.dp)
                             }
                         }
                     }
