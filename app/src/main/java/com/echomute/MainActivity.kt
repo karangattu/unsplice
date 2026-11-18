@@ -256,6 +256,13 @@ private fun UnspliceApp() {
         }
     }
 
+    fun removeQueuedItem(id: String) {
+        val player = controller ?: return
+        val index = (player.currentMediaItemIndex.coerceAtLeast(0) until player.mediaItemCount)
+            .firstOrNull { player.getMediaItemAt(it).mediaId == id }
+        if (index != null) player.removeMediaItem(index)
+    }
+
     fun playNext(episode: Episode, podcast: Podcast) {
         val player = controller ?: run {
             message = "Player is starting. Try again."
@@ -700,7 +707,8 @@ private fun UnspliceApp() {
                         QueueTab(
                             upcoming = upcoming,
                             currentId = currentId,
-                            podcastsByTitle = podcastsByTitle,
+                            episodesById = episodesById,
+                            podcastsById = podcastsById,
                             onPlayItem = { item ->
                                 controller?.let { player ->
                                     val found = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == item.mediaId }
@@ -714,13 +722,18 @@ private fun UnspliceApp() {
                                     }
                                 }
                             },
-                            onMoveUp = { idx -> controller?.moveMediaItem(currentIndex + idx, currentIndex + idx - 1) },
-                            onMoveDown = { idx -> controller?.moveMediaItem(currentIndex + idx, currentIndex + idx + 1) },
-                            onMoveItem = { from, to -> controller?.moveMediaItem(currentIndex + from, currentIndex + to) },
-                            onFinishItem = { idx, item ->
+                            onMoveItem = { fromId, toId ->
+                                controller?.let { player ->
+                                    val upcomingIndices = (player.currentMediaItemIndex + 1) until player.mediaItemCount
+                                    val from = upcomingIndices.firstOrNull { player.getMediaItemAt(it).mediaId == fromId }
+                                    val to = upcomingIndices.firstOrNull { player.getMediaItemAt(it).mediaId == toId }
+                                    if (from != null && to != null && from != to) player.moveMediaItem(from, to)
+                                }
+                            },
+                            onFinishItem = { id ->
+                                removeQueuedItem(id)
                                 scope.launch {
-                                    val ep = dao.episode(item.mediaId)
-                                    controller?.removeMediaItem(currentIndex + idx)
+                                    val ep = dao.episode(id)
                                     if (ep != null) {
                                         try {
                                             WorkManager.getInstance(context).cancelUniqueWork("episode-${ep.id}")
@@ -729,11 +742,11 @@ private fun UnspliceApp() {
                                             finishEpisodeAndCleanup(dao, context.filesDir, ep, autoDeletePlayed)
                                         }
                                     } else {
-                                        dao.markFinished(item.mediaId)
+                                        dao.markFinished(id)
                                     }
                                 }
                             },
-                            onRemoveItem = { idx -> controller?.removeMediaItem(currentIndex + idx) }
+                            onRemoveItem = ::removeQueuedItem
                         )
                     }
                     tab == "Filters" -> {

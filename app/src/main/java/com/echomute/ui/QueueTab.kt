@@ -2,10 +2,7 @@ package com.echomute
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -28,6 +26,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,33 +37,43 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaItem
 import kotlin.math.roundToInt
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @Composable
 internal fun QueueTab(
     upcoming: List<MediaItem>,
     currentId: String?,
-    podcastsByTitle: Map<String, Podcast>,
+    episodesById: Map<String, Episode>,
+    podcastsById: Map<String, Podcast>,
     onPlayItem: (MediaItem) -> Unit,
-    onMoveUp: (Int) -> Unit,
-    onMoveDown: (Int) -> Unit,
-    onMoveItem: (Int, Int) -> Unit,
-    onFinishItem: (Int, MediaItem) -> Unit,
-    onRemoveItem: (Int) -> Unit
+    onMoveItem: (String, String) -> Unit,
+    onFinishItem: (String) -> Unit,
+    onRemoveItem: (String) -> Unit
 ) {
-    val rowHeightPx = with(LocalDensity.current) { 92.dp.toPx() }
+    val listState = rememberLazyListState()
+    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+        onMoveItem(from.key as String, to.key as String)
+    }
+    val haptics = LocalHapticFeedback.current
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
             Text("Up Next", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -84,117 +95,164 @@ internal fun QueueTab(
         } else {
             LazyColumn(
                 Modifier.weight(1f),
+                state = listState,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 itemsIndexed(upcoming, key = { _, item -> item.mediaId }) { index, item ->
-                    val title = item.mediaMetadata.title?.toString().orEmpty()
-                    val artist = item.mediaMetadata.artist?.toString().orEmpty()
-                    val podcast = podcastsByTitle[artist]
-                    val isCurrent = item.mediaId == currentId
-                    var dragAccumulated by remember(item.mediaId) { mutableFloatStateOf(0f) }
-                    var reorderDragY by remember(item.mediaId) { mutableFloatStateOf(0f) }
-                    val canReorder = upcoming.size > 1
-                    val swipeOffset = dragAccumulated.coerceIn(-120f, 0f)
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .offset { IntOffset((swipeOffset * 0.35f).roundToInt(), 0) }
-                            .testTag("queue-$title")
-                            .pointerInput(item.mediaId) {
-                                detectHorizontalDragGestures(
-                                    onDragStart = { dragAccumulated = 0f },
-                                    onDragCancel = { dragAccumulated = 0f },
-                                    onDragEnd = {
-                                        if (dragAccumulated < -160f) onFinishItem(index, item)
-                                        dragAccumulated = 0f
-                                    },
-                                    onHorizontalDrag = { _, dragAmount -> dragAccumulated += dragAmount }
-                                )
-                            },
-                        color = if (isCurrent) UnspliceSurfaceElevated else UnspliceSurface,
-                        border = BorderStroke(1.dp, if (isCurrent) UnspliceMint.copy(alpha = 0.45f) else UnspliceOutline),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (canReorder) {
-                                Icon(
-                                    Icons.Filled.DragIndicator,
-                                    contentDescription = "Drag $title to reorder",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .testTag("reorder-$title")
-                                        .draggable(
-                                            orientation = Orientation.Vertical,
-                                            state = rememberDraggableState { dy ->
-                                                reorderDragY += dy
-                                                val steps = (reorderDragY / rowHeightPx).toInt()
-                                                if (steps != 0) {
-                                                    val target = (index + steps).coerceIn(1, upcoming.lastIndex)
-                                                    if (target != index) onMoveItem(index, target)
-                                                    reorderDragY = 0f
-                                                }
-                                            }
-                                        )
-                                )
-                                Spacer(Modifier.width(6.dp))
-                            }
-                            PodcastArtwork(
-                                title = artist.ifBlank { title },
-                                url = podcast?.artworkUrl,
-                                size = 44.dp,
-                                cornerRadius = 10.dp
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Column(
-                                Modifier
-                                    .weight(1f)
-                                    .clickable(onClickLabel = "Play $title") { onPlayItem(item) }
-                            ) {
-                                if (isCurrent) {
-                                    Text(
-                                        "CURRENT EPISODE",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = UnspliceMint,
-                                        fontWeight = FontWeight.Bold
+                    val id = item.mediaId
+                    val isCurrent = id == currentId
+                    val canReorder = index > 0 && !isCurrent && upcoming.size > 2
+                    ReorderableItem(reorderState, key = id, enabled = canReorder) { isDragging ->
+                        val title = item.mediaMetadata.title?.toString().orEmpty()
+                        val artist = item.mediaMetadata.artist?.toString().orEmpty()
+                        val episode = episodesById[id]
+                        val podcast = episode?.let { podcastsById[it.podcastId] }
+                            ?: podcastsById.values.firstOrNull { it.title == artist }
+                        val show = (podcast?.title ?: artist).ifBlank { title }
+                        val published = (episode?.publishedAt ?: item.toQueueItem().publishedAt)?.let(::formatPublished)
+                        var swipeDistance by remember { mutableFloatStateOf(0f) }
+                        val finishItem by rememberUpdatedState { onFinishItem(id) }
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .offset { IntOffset((swipeDistance.coerceIn(-120f, 0f) * 0.35f).roundToInt(), 0) }
+                                .testTag("queue-$title")
+                                .pointerInput(id) {
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { swipeDistance = 0f },
+                                        onDragCancel = { swipeDistance = 0f },
+                                        onDragEnd = {
+                                            if (swipeDistance < -160f) finishItem()
+                                            swipeDistance = 0f
+                                        },
+                                        onHorizontalDrag = { _, amount -> swipeDistance += amount }
                                     )
+                                },
+                            color = if (isCurrent || isDragging) UnspliceSurfaceElevated else UnspliceSurface,
+                            border = BorderStroke(
+                                1.dp,
+                                when {
+                                    isDragging -> UnspliceMint
+                                    isCurrent -> UnspliceMint.copy(alpha = 0.45f)
+                                    else -> UnspliceOutline
                                 }
-                                Text(title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                val published = item.toQueueItem().publishedAt?.let(::formatPublished)
-                                val meta = listOfNotNull(artist.takeIf { it.isNotBlank() }, published).joinToString(" \u2022 ")
-                                if (meta.isNotBlank()) {
+                            ),
+                            shadowElevation = if (isDragging) 8.dp else 0.dp,
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(Modifier.clearAndSetSemantics { contentDescription = show }) {
+                                    PodcastArtwork(title = show, url = podcast?.artworkUrl, size = 48.dp)
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(
+                                    Modifier
+                                        .weight(1f)
+                                        .clickable(onClickLabel = "Play $title") { onPlayItem(item) }
+                                ) {
+                                    if (isCurrent) {
+                                        Text(
+                                            "Current episode",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = UnspliceMint,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
                                     Text(
-                                        meta,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
+                                        title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    if (published != null) {
+                                        Text(
+                                            published,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(top = 2.dp)
+                                        )
+                                    }
                                 }
-                            }
-                            IconButton(enabled = index > 1, onClick = { onMoveUp(index) }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move $title up")
-                            }
-                            IconButton(enabled = index > 0 && index < upcoming.lastIndex, onClick = { onMoveDown(index) }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move $title down")
-                            }
-                            IconButton(
-                                modifier = Modifier.size(36.dp).testTag("finish-$title"),
-                                onClick = { onFinishItem(index, item) }
-                            ) {
-                                Icon(Icons.Filled.Check, contentDescription = "Mark $title finished", tint = UnspliceMint)
-                            }
-                            IconButton(onClick = { onRemoveItem(index) }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Filled.Close, contentDescription = "Remove $title from Up Next")
+                                if (canReorder) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .testTag("reorder-$title")
+                                            .draggableHandle(
+                                                onDragStarted = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.DragIndicator,
+                                            contentDescription = null,
+                                            tint = if (isDragging) UnspliceMint else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                QueueEpisodeActions(
+                                    title = title,
+                                    onMoveUp = if (canReorder && index > 1) {
+                                        { onMoveItem(id, upcoming[index - 1].mediaId) }
+                                    } else null,
+                                    onMoveDown = if (canReorder && index < upcoming.lastIndex) {
+                                        { onMoveItem(id, upcoming[index + 1].mediaId) }
+                                    } else null,
+                                    onFinish = finishItem,
+                                    onRemove = { onRemoveItem(id) }
+                                )
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun QueueEpisodeActions(
+    title: String,
+    onMoveUp: (() -> Unit)?,
+    onMoveDown: (() -> Unit)?,
+    onFinish: () -> Unit,
+    onRemove: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Filled.MoreVert, contentDescription = "Queue actions for $title")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (onMoveUp != null) {
+                DropdownMenuItem(
+                    text = { Text("Move up") },
+                    leadingIcon = { Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null) },
+                    onClick = { expanded = false; onMoveUp() }
+                )
+            }
+            if (onMoveDown != null) {
+                DropdownMenuItem(
+                    text = { Text("Move down") },
+                    leadingIcon = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null) },
+                    onClick = { expanded = false; onMoveDown() }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Mark finished") },
+                leadingIcon = { Icon(Icons.Filled.Check, contentDescription = null, tint = UnspliceMint) },
+                onClick = { expanded = false; onFinish() }
+            )
+            DropdownMenuItem(
+                text = { Text("Remove from Up Next") },
+                leadingIcon = { Icon(Icons.Filled.Close, contentDescription = null) },
+                onClick = { expanded = false; onRemove() }
+            )
         }
     }
 }
