@@ -3,15 +3,14 @@
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#131B2B"
+    android:background="@drawable/widget_background"
     android:gravity="center_vertical"
-    android:orientation="horizontal"
+    android:orientation="vertical"
     android:padding="12dp">
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
         android:orientation="vertical">
 
         <TextView
@@ -20,8 +19,8 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="1"
-            android:text="Unsplice"
-            android:textColor="#F4F6FA"
+            android:text="@string/widget_default_title"
+            android:textColor="@color/unsplice_ivory"
             android:textSize="14sp"
             android:textStyle="bold" />
 
@@ -29,44 +28,82 @@
             android:id="@+id/widget_subtitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:maxLines="1"
-            android:text="Tap to open player"
-            android:textColor="#94A3B8"
+            android:text="@string/widget_default_subtitle"
+            android:textColor="@color/unsplice_slate"
             android:textSize="12sp" />
     </LinearLayout>
 
-    <Button
-        android:id="@+id/widget_rewind"
-        android:layout_width="wrap_content"
-        android:layout_height="36dp"
-        android:minWidth="44dp"
-        android:text="-15s"
-        android:textSize="11sp" />
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-    <Button
-        android:id="@+id/widget_play_pause"
-        android:layout_width="wrap_content"
-        android:layout_height="36dp"
-        android:minWidth="56dp"
-        android:text="Play"
-        android:textColor="#3EE6A0"
-        android:textSize="11sp" />
+        <Button
+            android:id="@+id/widget_rewind"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_pill_button"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            android:text="@string/widget_rewind"
+            android:textAllCaps="false"
+            android:textColor="@color/unsplice_ivory"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
-    <Button
-        android:id="@+id/widget_forward"
-        android:layout_width="wrap_content"
-        android:layout_height="36dp"
-        android:minWidth="44dp"
-        android:text="+30s"
-        android:textSize="11sp" />
+        <Button
+            android:id="@+id/widget_play_pause"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1.2"
+            android:background="@drawable/widget_primary_button"
+            android:minWidth="0dp"
+            android:paddingHorizontal="10dp"
+            android:text="@string/widget_play"
+            android:textAllCaps="false"
+            android:textColor="@color/unsplice_on_mint"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
-    <Button
-        android:id="@+id/widget_skip_ad"
-        android:layout_width="wrap_content"
-        android:layout_height="36dp"
-        android:minWidth="56dp"
-        android:text="Skip Ad"
-        android:textColor="#F5B041"
-        android:textSize="11sp" />
+        <Button
+            android:id="@+id/widget_forward"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_pill_button"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            android:text="@string/widget_forward"
+            android:textAllCaps="false"
+            android:textColor="@color/unsplice_ivory"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/widget_skip_ad"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1.2"
+            android:background="@drawable/widget_amber_button"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp"
+            android:text="@string/widget_skip_ad"
+            android:textAllCaps="false"
+            android:textColor="@color/unsplice_amber"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 </LinearLayout>

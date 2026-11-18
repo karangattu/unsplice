@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="unsplice_midnight">#070B14</color>
+    <color name="unsplice_surface">#0E1422</color>
+    <color name="unsplice_surface_elevated">#151D30</color>
+    <color name="unsplice_mint">#42EB9F</color>
+    <color name="unsplice_on_mint">#052114</color>
+    <color name="unsplice_amber">#F6B247</color>
+    <color name="unsplice_amber_container">#2F230F</color>
+    <color name="unsplice_ivory">#F6F5F0</color>
+    <color name="unsplice_slate">#98A6BE</color>
+    <color name="unsplice_hairline">#22FFFFFF</color>
+</resources>
