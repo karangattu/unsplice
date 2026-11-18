@@ -78,6 +78,16 @@ fun unplayedCountsByPodcast(episodes: List<Episode>): Map<String, Int> {
     return counts
 }
 
+fun latestPublishedByPodcast(episodes: List<Episode>): Map<String, Long> {
+    val latest = HashMap<String, Long>()
+    for (ep in episodes) {
+        val published = ep.publishedAt ?: continue
+        val prev = latest[ep.podcastId]
+        if (prev == null || published > prev) latest[ep.podcastId] = published
+    }
+    return latest
+}
+
 data class ListeningStats(
     val totalListenedMs: Long,
     val adSkippedMs: Long,

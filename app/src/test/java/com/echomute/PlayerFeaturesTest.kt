@@ -89,6 +89,7 @@ class PlayerFeaturesTest {
         assertEquals(listOf("3"), filterSmartEpisodes(episodes, "Downloaded").map { it.id })
         assertEquals(listOf("3"), filterSmartEpisodes(episodes, "Starred").map { it.id })
         assertEquals(mapOf("p1" to 2, "p2" to 1), unplayedCountsByPodcast(episodes))
+        assertEquals(mapOf("p1" to 3_000L, "p2" to 4_000L), latestPublishedByPodcast(episodes))
     }
 
     @Test fun recordsAndReadsListeningStatsAndTimeSaved() {

@@ -1,6 +1,7 @@
 package com.echomute
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -144,5 +145,29 @@ class UiHelpersTest {
         assertEquals(listOf(1, 2, 5, 10, 0), (0..4).fold(emptyList<Int>()) { acc, _ ->
             acc + if (acc.isEmpty()) nextAutoDownloadLimit(0) else nextAutoDownloadLimit(acc.last())
         })
+    }
+
+    @Test fun artworkAuraExtractionIgnoresGrayscaleAndHarmonizesVibrantPixels() {
+        assertNull(extractArtworkAuraArgb(intArrayOf()))
+        assertNull(extractArtworkAuraArgb(intArrayOf(0x00FF0000, 0x7F00FF00)))
+        assertNull(extractArtworkAuraArgb(intArrayOf(0xFFFFFFFF.toInt(), 0xFF808080.toInt(), 0xFF000000.toInt())))
+
+        val vibrantRed = extractArtworkAuraArgb(intArrayOf(0xFFFF2222.toInt(), 0xFFCCCCCC.toInt()))!!
+        val alpha = (vibrantRed ushr 24) and 0xFF
+        val r = (vibrantRed ushr 16) and 0xFF
+        val g = (vibrantRed ushr 8) and 0xFF
+        val b = vibrantRed and 0xFF
+        assertEquals(255, alpha)
+        assertTrue("Expected red-dominant aura, got $r,$g,$b", r > g && r > b)
+        assertTrue("Expected darkened aura suitable for ivory text, got max=${maxOf(r, g, b)}", maxOf(r, g, b) < 150)
+    }
+
+    @Test fun fallbackArtworkAuraIsDeterministicAndDarkSafe() {
+        val first = fallbackArtworkAuraArgb("Example Show")
+        assertEquals(first, fallbackArtworkAuraArgb("Example Show"))
+        val maxChannel = maxOf((first ushr 16) and 0xFF, (first ushr 8) and 0xFF, first and 0xFF)
+        assertEquals(255, (first ushr 24) and 0xFF)
+        assertTrue(maxChannel in 20..150)
+        assertNotEquals(0, first)
     }
 }
